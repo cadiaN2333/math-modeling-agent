@@ -20,6 +20,7 @@ from .energy_park import compute_typical_day
 from .energy_park_continuous import run_continuous_question_three
 from .energy_park_discrete import run_discrete_question_two
 from .energy_park_io import load_energy_park_directory
+from .energy_park_policy import build_energy_park_policy_report
 from .energy_park_validator import validate_typical_day
 from .linear_agent import run_linear_modeling
 from .min_cost_flow_agent import run_min_cost_flow_modeling
@@ -95,12 +96,67 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         help="读取电工杯 A 题附件，计算问题三连续功率调度",
     )
     input_group.add_argument(
+        "--energy-park-q5",
+        type=Path,
+        metavar="附件目录",
+        help="基于问题二、三运行结果生成带来源的问题五分析",
+    )
+    input_group.add_argument(
         "--solve-draft",
         type=Path,
         metavar="JSON文件",
         help="求解经过用户审阅的结构化分析 JSON",
     )
     args = parser.parse_args(argv)
+
+    if args.energy_park_q5 is not None:
+        try:
+            dataset = load_energy_park_directory(args.energy_park_q5)
+            discrete_result = run_discrete_question_two(dataset)
+            continuous_result = run_continuous_question_three(
+                dataset,
+                discrete_result=discrete_result,
+            )
+            policy_report = build_energy_park_policy_report(
+                discrete_result,
+                continuous_result,
+            )
+        except (RuntimeError, ValueError) as exc:
+            print(f"能源园区问题五分析失败：{exc}", file=sys.stderr)
+            return 2
+
+        payload = {
+            "problem2_summary": {
+                "best_typical_target_tons_per_day": (
+                    discrete_result.best_typical_target_tons_per_day
+                ),
+                "best_annual_cost_per_ton_target_tons_per_day": (
+                    discrete_result.best_annual_cost_per_ton_target_tons_per_day
+                ),
+                "annual_summaries": [
+                    summary.model_dump(mode="json")
+                    for summary in discrete_result.annual_summaries
+                ],
+            },
+            "problem3_summary": {
+                "best_typical_target_tons_per_day": (
+                    continuous_result.best_typical_target_tons_per_day
+                ),
+                "best_annual_cost_per_ton_target_tons_per_day": (
+                    continuous_result.best_annual_cost_per_ton_target_tons_per_day
+                ),
+                "annual_summaries": [
+                    summary.model_dump(mode="json")
+                    for summary in continuous_result.annual_summaries
+                ],
+                "discrete_comparison_by_target": (
+                    continuous_result.discrete_comparison_by_target
+                ),
+            },
+            "policy_analysis": policy_report.model_dump(mode="json"),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
 
     if args.energy_park_q3 is not None:
         try:

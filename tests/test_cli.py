@@ -534,3 +534,25 @@ def test_cli_energy_park_q3_returns_continuous_and_discrete_comparison(
     assert len(result["scenario_runs"]) == 120
     assert len(result["discrete_comparison_by_target"]) == 5
     assert result["modeling_assumptions"]
+
+
+def test_cli_energy_park_q5_returns_cited_policy_report(capsys, monkeypatch) -> None:
+    from math_modeling_agent import cli
+    from test_energy_park_discrete import _dataset_with_sunny_half_day
+
+    monkeypatch.setattr(
+        cli,
+        "load_energy_park_directory",
+        lambda _path: _dataset_with_sunny_half_day(),
+        raising=False,
+    )
+
+    exit_code = cli.main(["--energy-park-q5", "D:\\例题\\电工杯A"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    report = result["policy_analysis"]
+    assert len(report["benefits"]) >= 3
+    assert len(report["risks"]) >= 3
+    assert len(report["recommendations"]) >= 3
+    assert report["sources"]
