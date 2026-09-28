@@ -1,5 +1,6 @@
 # Python 虚拟环境与缓存
 .venv/
+.worktrees/
 __pycache__/
 *.py[cod]
 .pytest_cache/
