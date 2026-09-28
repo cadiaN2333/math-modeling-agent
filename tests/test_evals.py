@@ -388,6 +388,66 @@ def test_eval_ignores_min_cost_flow_arc_ids_and_order() -> None:
     assert result["passed"] is True
 
 
+def test_eval_rejects_wrong_route_flow_and_wrong_total_cost() -> None:
+    from math_modeling_agent.evals import evaluate_case
+    from min_cost_flow_fixtures import make_transport_eval_payload
+
+    case = {
+        "id": "minimum_cost_flow_wrong_result",
+        "family": "transportation",
+        "expected_analysis_status": "ready",
+        "expected_model": make_expected_transport_draft(),
+        "expected_solver_statuses": ["OPTIMAL"],
+        "expected_method_id": "minimum_cost_flow",
+        "expected_validation": "valid",
+        "expected_route_flows": [
+            ["W1", "S1", 20],
+            ["W1", "S2", 0],
+            ["W2", "S1", 5],
+            ["W2", "S2", 25],
+        ],
+        "expected_total_cost": 80,
+    }
+
+    wrong_route = make_transport_eval_payload()
+    wrong_route["modeling_run"]["solver_result"]["arc_flows"]["W2_S1"] = 4
+    wrong_route_result = evaluate_case(case, wrong_route)
+    route_check = next(
+        check for check in wrong_route_result["checks"] if check["name"] == "route_flows"
+    )
+    assert wrong_route_result["passed"] is False
+    assert route_check["passed"] is False
+
+    wrong_cost = make_transport_eval_payload()
+    wrong_cost["modeling_run"]["solver_result"]["total_cost"] = 81
+    wrong_cost_result = evaluate_case(case, wrong_cost)
+    cost_check = next(
+        check for check in wrong_cost_result["checks"] if check["name"] == "total_cost"
+    )
+    assert wrong_cost_result["passed"] is False
+    assert cost_check["passed"] is False
+
+
+def test_transport_eval_payload_uses_an_independent_arc_flow_mapping() -> None:
+    from min_cost_flow_fixtures import make_transport_eval_payload
+
+    expected_flows = {
+        "W1_S1": 20,
+        "W1_S2": 0,
+        "W2_S1": 5,
+        "W2_S2": 25,
+    }
+
+    first_payload = make_transport_eval_payload()
+    first_payload["modeling_run"]["solver_result"]["arc_flows"]["W2_S1"] = 4
+    second_payload = make_transport_eval_payload()
+
+    assert (
+        second_payload["modeling_run"]["solver_result"]["arc_flows"]
+        == expected_flows
+    )
+
+
 def test_live_eval_routes_ready_min_cost_flow_to_flow_adapter(monkeypatch, capsys) -> None:
     from math_modeling_agent import evals
     from min_cost_flow_fixtures import make_ready_analysis, make_transport_eval_payload
@@ -539,6 +599,28 @@ def test_eval_dataset_has_eleven_unique_valid_domain_cases() -> None:
         for case in cases
         if case["expected_analysis_status"] == "ready"
     )
+
+
+def test_eval_loader_rejects_feasible_network_case_without_route_flows(tmp_path) -> None:
+    import json
+    from pathlib import Path
+    import pytest
+
+    from math_modeling_agent.evals import load_eval_cases
+
+    cases_path = Path(__file__).resolve().parents[1] / "evals" / "cases.json"
+    dataset = json.loads(cases_path.read_text(encoding="utf-8"))
+    case = next(
+        item
+        for item in dataset["cases"]
+        if item["id"] == "minimum_cost_flow_warehouse_delivery"
+    )
+    del case["expected_route_flows"]
+    invalid_path = tmp_path / "网络流缺少路线期望.json"
+    invalid_path.write_text(json.dumps(dataset, ensure_ascii=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="必须声明路线流量"):
+        load_eval_cases(invalid_path)
 
 
 def test_evals_cli_defaults_to_offline_without_calling_analyzer(capsys) -> None:

@@ -95,34 +95,34 @@ def load_eval_cases(path: Path | None = None) -> list[dict[str, Any]]:
                 raise ValueError(f"ready 案例 {case_id} 必须声明预期方法")
             if case.get("expected_validation") not in {"valid", "not_run"}:
                 raise ValueError(f"ready 案例 {case_id} 必须声明 validator 期望")
-                if case.get("family") == "transportation":
-                    if not isinstance(case.get("expected_model"), dict):
-                        raise ValueError(f"ready 网络流案例 {case_id} 必须声明 expected_model")
-                    if case.get("expected_validation") == "valid":
-                        expected_route_flows = case.get("expected_route_flows")
-                        expected_total_cost = case.get("expected_total_cost")
-                        if not isinstance(expected_route_flows, list) or not expected_route_flows:
-                            raise ValueError(f"可行网络流案例 {case_id} 必须声明路线流量")
-                        if any(
-                            not isinstance(route, list)
-                            or len(route) != 3
-                            or not isinstance(route[0], str)
-                            or not isinstance(route[1], str)
-                            or not isinstance(route[2], int)
-                            or isinstance(route[2], bool)
-                            or route[2] < 0
-                            for route in expected_route_flows
-                        ):
-                            raise ValueError(f"网络流案例 {case_id} 的 expected_route_flows 无效")
-                        route_pairs = [
-                            (route[0], route[1]) for route in expected_route_flows
-                        ]
-                        if len(route_pairs) != len(set(route_pairs)):
-                            raise ValueError(f"网络流案例 {case_id} 的路线期望不能重复")
-                        if not isinstance(expected_total_cost, int) or isinstance(
-                            expected_total_cost, bool
-                        ):
-                            raise ValueError(f"网络流案例 {case_id} 必须声明整数 expected_total_cost")
+            if case.get("family") == "transportation":
+                if not isinstance(case.get("expected_model"), dict):
+                    raise ValueError(f"ready 网络流案例 {case_id} 必须声明 expected_model")
+                if case.get("expected_validation") == "valid":
+                    expected_route_flows = case.get("expected_route_flows")
+                    expected_total_cost = case.get("expected_total_cost")
+                    if not isinstance(expected_route_flows, list) or not expected_route_flows:
+                        raise ValueError(f"可行网络流案例 {case_id} 必须声明路线流量")
+                    if any(
+                        not isinstance(route, list)
+                        or len(route) != 3
+                        or not isinstance(route[0], str)
+                        or not isinstance(route[1], str)
+                        or not isinstance(route[2], int)
+                        or isinstance(route[2], bool)
+                        or route[2] < 0
+                        for route in expected_route_flows
+                    ):
+                        raise ValueError(f"网络流案例 {case_id} 的 expected_route_flows 无效")
+                    route_pairs = [
+                        (route[0], route[1]) for route in expected_route_flows
+                    ]
+                    if len(route_pairs) != len(set(route_pairs)):
+                        raise ValueError(f"网络流案例 {case_id} 的路线期望不能重复")
+                    if not isinstance(expected_total_cost, int) or isinstance(
+                        expected_total_cost, bool
+                    ):
+                        raise ValueError(f"网络流案例 {case_id} 必须声明整数 expected_total_cost")
         elif "expected_solver_statuses" in case:
             raise ValueError(f"非 ready 案例 {case_id} 不能要求求解状态")
 

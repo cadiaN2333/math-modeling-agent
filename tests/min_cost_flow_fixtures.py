@@ -141,7 +141,7 @@ def make_transport_eval_payload():
         "modeling_run": {
             "solver_result": {
                 "status": "OPTIMAL",
-                "arc_flows": EXPECTED_ARC_FLOWS,
+                "arc_flows": dict(EXPECTED_ARC_FLOWS),
                 "total_cost": 80,
             },
             "validation_report": {
