@@ -5,6 +5,7 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from pydantic import ValidationError
 
 from .analysis_agent import (
     analyze_problem,
@@ -12,12 +13,44 @@ from .analysis_agent import (
     to_minimum_cost_flow_problem,
     retrieve_methods_for_subtasks,
     to_scheduling_problem,
+    ProblemAnalysis,
 )
 from .agent import run_modeling
+from .energy_park import compute_typical_day
+from .energy_park_io import load_energy_park_directory
+from .energy_park_validator import validate_typical_day
 from .linear_agent import run_linear_modeling
 from .min_cost_flow_agent import run_min_cost_flow_modeling
 from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
+
+
+def _run_confirmed_analysis(analysis: ProblemAnalysis):
+    """按经校验的领域草稿选择本地求解器。"""
+
+    if analysis.status != "ready":
+        raise ValueError("只有 ready 状态的结构化草稿可以进入求解")
+    if analysis.problem_family == "employee_scheduling":
+        return run_modeling(to_scheduling_problem(analysis))
+    if analysis.problem_family == "linear_programming":
+        return run_linear_modeling(to_linear_program_problem(analysis))
+    if analysis.problem_family == "minimum_cost_flow":
+        return run_min_cost_flow_modeling(
+            to_minimum_cost_flow_problem(analysis)
+        )
+    raise ValueError("当前问题领域没有已实现的求解适配器")
+
+
+def _modeling_run_is_valid(modeling_run_data: dict) -> bool:
+    """统一判断求解状态和独立 validator 结果。"""
+
+    solver_result = modeling_run_data["solver_result"]
+    validation_report = modeling_run_data["validation_report"]
+    return (
+        solver_result["status"] in {"OPTIMAL", "FEASIBLE"}
+        and validation_report is not None
+        and validation_report["is_valid"]
+    )
 
 
 def main(argv: list[str] | None = None, *, llm_client=None) -> int:
@@ -41,7 +74,67 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         metavar="自然语言描述",
         help="用 DeepSeek 分析中文问题，并按子任务检索 HMML",
     )
+    input_group.add_argument(
+        "--energy-park-q1",
+        type=Path,
+        metavar="附件目录",
+        help="读取电工杯 A 题附件，计算问题一典型日基准",
+    )
+    input_group.add_argument(
+        "--solve-draft",
+        type=Path,
+        metavar="JSON文件",
+        help="求解经过用户审阅的结构化分析 JSON",
+    )
     args = parser.parse_args(argv)
+
+    if args.energy_park_q1 is not None:
+        try:
+            dataset = load_energy_park_directory(args.energy_park_q1)
+            result = compute_typical_day(dataset)
+        except (RuntimeError, ValueError) as exc:
+            print(f"能源园区问题一计算失败：{exc}", file=sys.stderr)
+            return 2
+
+        validation_report = validate_typical_day(dataset, result)
+        payload = result.model_dump(mode="json")
+        payload["validation_report"] = validation_report.model_dump(mode="json")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if validation_report.is_valid else 1
+
+    if args.solve_draft is not None:
+        try:
+            document = json.loads(args.solve_draft.read_text(encoding="utf-8-sig"))
+        except OSError as exc:
+            print(f"无法读取已审阅草稿：{exc}", file=sys.stderr)
+            return 2
+        except json.JSONDecodeError as exc:
+            print(f"草稿 JSON 格式错误：{exc}", file=sys.stderr)
+            return 2
+
+        try:
+            if not isinstance(document, dict) or not isinstance(
+                document.get("analysis"), dict
+            ):
+                raise ValueError("草稿文件必须包含 analysis JSON 对象")
+            analysis = ProblemAnalysis.model_validate(document["analysis"])
+            modeling_run = _run_confirmed_analysis(analysis)
+        except (ValidationError, ValueError) as exc:
+            print(f"已审阅草稿校验失败：{exc}", file=sys.stderr)
+            return 2
+
+        recommendations = retrieve_methods_for_subtasks(analysis)
+        payload = {
+            "analysis": analysis.model_dump(mode="json"),
+            "method_recommendations": {
+                task_id: [asdict(item) for item in items]
+                for task_id, items in recommendations.items()
+            },
+            "confirmation": {"state": "confirmed_by_cli"},
+            "modeling_run": asdict(modeling_run),
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0 if _modeling_run_is_valid(payload["modeling_run"]) else 1
 
     if args.request is not None:
         try:
@@ -57,39 +150,11 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
                 task_id: [asdict(item) for item in items]
                 for task_id, items in recommendations.items()
             },
+            "workflow_state": (
+                "awaiting_user_review" if analysis.status == "ready" else analysis.status
+            ),
         }
-
-        if analysis.status == "ready":
-            try:
-                if analysis.problem_family == "employee_scheduling":
-                    problem = to_scheduling_problem(analysis)
-                    modeling_run = run_modeling(problem)
-                elif analysis.problem_family == "linear_programming":
-                    problem = to_linear_program_problem(analysis)
-                    modeling_run = run_linear_modeling(problem)
-                elif analysis.problem_family == "minimum_cost_flow":
-                    problem = to_minimum_cost_flow_problem(analysis)
-                    modeling_run = run_min_cost_flow_modeling(problem)
-                else:
-                    raise ValueError("当前问题领域没有已实现的求解适配器")
-            except ValueError as exc:
-                print(f"领域草稿校验失败：{exc}", file=sys.stderr)
-                return 2
-            payload["modeling_run"] = asdict(modeling_run)
-
         print(json.dumps(payload, ensure_ascii=False, indent=2))
-
-        modeling_run_data = payload.get("modeling_run")
-        if modeling_run_data is not None:
-            solver_result = modeling_run_data["solver_result"]
-            validation_report = modeling_run_data["validation_report"]
-            if (
-                solver_result["status"] not in {"OPTIMAL", "FEASIBLE"}
-                or validation_report is None
-                or not validation_report["is_valid"]
-            ):
-                return 1
-
         return 0
 
     try:

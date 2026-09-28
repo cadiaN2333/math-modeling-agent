@@ -1,4 +1,5 @@
 import json
+import pytest
 
 
 def empty_linear_program_draft():
@@ -126,7 +127,7 @@ def test_cli_request_returns_clarifying_questions(capsys) -> None:
     assert result["method_recommendations"] == {}
 
 
-def test_cli_ready_request_runs_local_solver(capsys) -> None:
+def test_cli_ready_request_returns_draft_without_solving(capsys, monkeypatch) -> None:
     from types import SimpleNamespace
 
     from math_modeling_agent.analysis_agent import (
@@ -138,7 +139,7 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
         ShiftDraft,
         SkillRequirementDraft,
     )
-    from math_modeling_agent.cli import main
+    from math_modeling_agent import cli
 
     analysis = ProblemAnalysis(
         status="ready",
@@ -202,7 +203,11 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
             return SimpleNamespace(output_parsed=analysis)
 
     client = SimpleNamespace(responses=FakeResponses())
-    exit_code = main(
+    def fail_if_solver_runs(_problem):
+        pytest.fail("自然语言请求默认只返回草稿，不应自动求解")
+
+    monkeypatch.setattr(cli, "run_modeling", fail_if_solver_runs)
+    exit_code = cli.main(
         ["--request", "林晓上急救班，陈立上普通班。"],
         llm_client=client,
     )
@@ -210,14 +215,48 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
 
     assert exit_code == 0
     assert result["analysis"]["status"] == "ready"
-    assert result["modeling_run"]["solver_result"]["status"] in {
-        "OPTIMAL",
-        "FEASIBLE",
-    }
+    assert "modeling_run" not in result
+
+
+def test_cli_solve_confirmed_draft_runs_local_solver(capsys, tmp_path) -> None:
+    from math_modeling_agent.cli import main
+    from min_cost_flow_fixtures import make_ready_analysis
+
+    draft_path = tmp_path / "confirmed-draft.json"
+    draft_path.write_text(
+        json.dumps(
+            {
+                "analysis": make_ready_analysis().model_dump(mode="json"),
+                "method_recommendations": {},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = main(["--solve-draft", str(draft_path)])
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert result["modeling_run"]["solver_result"]["status"] == "OPTIMAL"
     assert result["modeling_run"]["validation_report"]["is_valid"] is True
 
 
-def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
+def test_cli_solve_confirmed_draft_rejects_malformed_json(capsys, tmp_path) -> None:
+    from math_modeling_agent.cli import main
+
+    draft_path = tmp_path / "invalid-draft.json"
+    draft_path.write_text("{ invalid", encoding="utf-8")
+
+    exit_code = main(["--solve-draft", str(draft_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "JSON" in captured.err
+    assert captured.out == ""
+
+
+def test_cli_ready_linear_program_request_returns_draft_without_solving(capsys, monkeypatch) -> None:
     import pytest
     from types import SimpleNamespace
 
@@ -230,7 +269,7 @@ def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
         ProblemAnalysis,
         SchedulingDraft,
     )
-    from math_modeling_agent.cli import main
+    from math_modeling_agent import cli
 
     analysis = ProblemAnalysis(
         status="ready",
@@ -304,7 +343,11 @@ def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
         def parse(self, **arguments):
             return SimpleNamespace(output_parsed=analysis)
 
-    exit_code = main(
+    def fail_if_solver_runs(_problem):
+        pytest.fail("自然语言请求默认只返回 LP 草稿，不应自动求解")
+
+    monkeypatch.setattr(cli, "run_linear_modeling", fail_if_solver_runs)
+    exit_code = cli.main(
         ["--request", "生产A、B两种产品，求利润最大化。"],
         llm_client=SimpleNamespace(responses=FakeResponses()),
     )
@@ -312,20 +355,14 @@ def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
 
     assert exit_code == 0
     assert result["analysis"]["problem_family"] == "linear_programming"
-    assert result["modeling_run"]["solver_result"]["status"] == "OPTIMAL"
-    assert result["modeling_run"]["solver_result"]["variable_values"] == pytest.approx(
-        {"A": 20.0, "B": 60.0}
-    )
-    assert result["modeling_run"]["solver_result"]["objective_value"] == pytest.approx(
-        2600.0
-    )
-    assert result["modeling_run"]["validation_report"]["is_valid"] is True
+    assert result["analysis"]["linear_program_draft"]["variables"]
+    assert "modeling_run" not in result
 
 
-def test_cli_ready_min_cost_flow_request_uses_network_flow_adapter(capsys) -> None:
+def test_cli_ready_min_cost_flow_request_returns_draft_without_solving(capsys, monkeypatch) -> None:
     from types import SimpleNamespace
 
-    from math_modeling_agent.cli import main
+    from math_modeling_agent import cli
     from min_cost_flow_fixtures import make_ready_analysis
 
     analysis = make_ready_analysis()
@@ -334,7 +371,11 @@ def test_cli_ready_min_cost_flow_request_uses_network_flow_adapter(capsys) -> No
         def parse(self, **arguments):
             return SimpleNamespace(output_parsed=analysis)
 
-    exit_code = main(
+    def fail_if_solver_runs(_problem):
+        pytest.fail("自然语言请求默认只返回网络流草稿，不应自动求解")
+
+    monkeypatch.setattr(cli, "run_min_cost_flow_modeling", fail_if_solver_runs)
+    exit_code = cli.main(
         ["--request", "以最低费用将两仓货物送至两家门店。"],
         llm_client=SimpleNamespace(responses=FakeResponses()),
     )
@@ -342,9 +383,8 @@ def test_cli_ready_min_cost_flow_request_uses_network_flow_adapter(capsys) -> No
 
     assert exit_code == 0
     assert result["analysis"]["problem_family"] == "minimum_cost_flow"
-    assert result["modeling_run"]["solver_result"]["status"] == "OPTIMAL"
-    assert result["modeling_run"]["solver_result"]["total_cost"] == 80
-    assert result["modeling_run"]["validation_report"]["is_valid"] is True
+    assert result["analysis"]["minimum_cost_flow_draft"]["nodes"]
+    assert "modeling_run" not in result
 
 
 def test_cli_does_not_solve_nonready_min_cost_flow_request(capsys, monkeypatch) -> None:
@@ -391,3 +431,63 @@ def test_cli_does_not_solve_nonready_min_cost_flow_request(capsys, monkeypatch) 
         assert exit_code == 0
         assert result["analysis"]["status"] == status
         assert "modeling_run" not in result
+
+
+def test_cli_energy_park_q1_outputs_balanced_results(capsys, monkeypatch) -> None:
+    from math_modeling_agent import cli
+    from math_modeling_agent.energy_park_models import (
+        EnergyParkCostParameters,
+        EnergyParkDataset,
+        HourlyProfile,
+    )
+
+    periods = [f"{hour}:00-{hour + 1}:00" for hour in range(24)]
+
+    def profile(values):
+        return HourlyProfile(periods=periods, values=values)
+
+    dataset = EnergyParkDataset(
+        ordinary_load=profile([1 / 6] * 24),
+        typical_wind=profile([0.0] * 12 + [0.5] * 12),
+        typical_pv=profile([0.0] * 12 + [0.25] * 12),
+        wind_scenarios=[profile([0.5] * 24) for _ in range(6)],
+        pv_scenarios=[profile([0.25] * 24) for _ in range(4)],
+        costs=EnergyParkCostParameters(
+            wind_lcoe_yuan_per_kwh=0.15,
+            pv_lcoe_yuan_per_kwh=0.12,
+            alkaline_om_yuan_per_kwh=0.1,
+            pem_om_yuan_per_kwh=0.15,
+            alkaline_lifetime_years=30,
+            pem_lifetime_years=30,
+            alkaline_efficiency_percent=70,
+            pem_efficiency_percent=80,
+            hydrogen_energy_kwh_per_kg=50,
+            storage_capex_yuan_per_kwh=1000,
+            storage_om_yuan_per_kwh=0.01,
+            storage_lifetime_years=15,
+            storage_charge_efficiency_percent=90,
+            storage_discharge_efficiency_percent=90,
+            storage_self_loss_percent=0.2,
+            ammonia_capex_yuan_per_kg_h2=60000,
+            ammonia_om_yuan_per_kwh=0.002,
+            ammonia_lifetime_years=30,
+            ammonia_energy_kwh_per_kg=0.5,
+            ammonia_hydrogen_kg_per_kg=0.2,
+            purchase_price_peak_yuan_per_kwh=0.8024,
+            purchase_price_flat_yuan_per_kwh=0.6074,
+            purchase_price_valley_yuan_per_kwh=0.3424,
+            wind_export_price_yuan_per_kwh=0.3779,
+            pv_export_price_yuan_per_kwh=0.3779,
+        ),
+        source_files=["附件1.xlsx", "附件2.xlsx"],
+    )
+    monkeypatch.setattr(cli, "load_energy_park_directory", lambda _path: dataset, raising=False)
+
+    exit_code = cli.main(["--energy-park-q1", "D:\\例题\\电工杯A"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert result["total_load_mwh"] == pytest.approx(522)
+    assert result["grid_purchase_mwh"] == pytest.approx(261)
+    assert result["validation_report"]["is_valid"] is True
+    assert result["source_files"] == ["附件1.xlsx", "附件2.xlsx"]

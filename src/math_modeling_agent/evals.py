@@ -431,7 +431,15 @@ def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, An
                 for item in solver_result.get("assignments", [])
             }
             missing_pairs = sorted(required_pairs - actual_pairs)
-            record("required_assignments", not missing_pairs, sorted(required_pairs), missing_pairs)
+            record(
+                "required_assignments",
+                not missing_pairs,
+                [list(pair) for pair in sorted(required_pairs)],
+                {
+                    "assigned": [list(pair) for pair in sorted(actual_pairs)],
+                    "missing": [list(pair) for pair in missing_pairs],
+                },
+            )
 
     return {
         "case_id": case["id"],

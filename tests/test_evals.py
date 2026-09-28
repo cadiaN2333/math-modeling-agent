@@ -200,6 +200,50 @@ def test_eval_case_requires_valid_solver_and_method_for_ready_schedule() -> None
     }
 
 
+def test_required_assignment_report_shows_assigned_and_missing_pairs() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    case = {
+        "id": "required_assignment_report",
+        "family": "scheduling",
+        "expected_analysis_status": "ready",
+        "expected_solver_statuses": ["OPTIMAL"],
+        "expected_method_id": "cp_sat_scheduling",
+        "expected_validation": "valid",
+        "required_assignment_pairs": [["E1", "S1"]],
+    }
+    payload = {
+        "analysis": {"status": "ready"},
+        "modeling_run": {
+            "solver_result": {
+                "status": "OPTIMAL",
+                "assignments": [
+                    {"employee_id": "E1", "shift_id": "S1"},
+                    {"employee_id": "E2", "shift_id": "S2"},
+                ],
+            },
+            "method_recommendations": [
+                {
+                    "method_id": "cp_sat_scheduling",
+                    "implementation_status": "已实现",
+                }
+            ],
+            "validation_report": {"is_valid": True, "errors": []},
+        },
+    }
+
+    result = evaluate_case(case, payload)
+    check = next(
+        item for item in result["checks"] if item["name"] == "required_assignments"
+    )
+
+    assert check["passed"] is True
+    assert check["actual"] == {
+        "assigned": [["E1", "S1"], ["E2", "S2"]],
+        "missing": [],
+    }
+
+
 def test_eval_case_compares_structured_model_without_list_order_sensitivity() -> None:
     from math_modeling_agent.evals import evaluate_case
 

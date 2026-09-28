@@ -15,6 +15,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 agent = ["openai", "python-dotenv>=1.0"]
+energy = ["openpyxl>=3.1"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -49,7 +49,7 @@ Set-Location D:\Agent\.worktrees\min-cost-network-flow
 
 - [ ] **步骤 3：实现最小数据模型**
 
-`HourlyProfile` 固定 24 个不重复的时段标签和 24 个有限标幺值，标幺值范围为 `[0, 1]`。`EnergyParkDataset` 保存常规负荷、典型日风光、6 条风电场景、4 条光伏场景、设备和电价参数。所有曲线必须使用完全相同的小时标签，风电和光伏场景数必须分别为 6 和 4。
+`HourlyProfile` 固定 24 个不重复的时段标签和 24 个有限标幺值，标幺值范围为 `[0, 1]`。`EnergyParkDataset` 保存常规负荷、典型日风光、6 条风电场景、4 条光伏场景、设备和电价参数。所有曲线必须使用完全相同的小时标签，风电和光伏场景数必须分别为 6 和 4。校验器还需核对额定功率、效率、单位耗电和产氢/耗氢数据是否一致。
 
 - [ ] **步骤 4：复跑并补边界测试**
 
@@ -79,7 +79,7 @@ def test_parse_hourly_table_preserves_period_order() -> None:
     assert result.values == [0.5] * 24
 ```
 
-再加一个缺失单元格测试，要求错误包含来源名和对应时段。
+再加缺失单元格和错误列标题测试，要求错误包含来源名及所在行/列。
 
 - [ ] **步骤 2：运行并确认因解析函数不存在而失败**
 
@@ -89,7 +89,7 @@ def test_parse_hourly_table_preserves_period_order() -> None:
 
 - [ ] **步骤 3：实现只读加载器**
 
-实现 `load_energy_park_directory(directory: Path) -> EnergyParkDataset`。使用 `openpyxl.load_workbook(path, read_only=True, data_only=True)`，逐表解析附件 1—8，不保存或覆盖源文件。遇到缺文件、错位小时、空值、非数值、单位或行列结构不符时抛出带附件名的 `ValueError`。缺少 openpyxl 时提示安装 `python -m pip install -e ".[dev,energy]"`。
+实现 `load_energy_park_directory(directory: Path) -> EnergyParkDataset`。使用 `openpyxl.load_workbook(path, read_only=True, data_only=True)`，逐表解析附件 1—8，不保存或覆盖源文件。遇到缺文件、错位小时、空值、非数值、单位或行列标题不符时抛出带附件名和位置的 `ValueError`，并在数据模型中保留实际使用的来源文件名。缺少 openpyxl 时提示安装 `python -m pip install -e ".[dev,energy]"`。
 
 - [ ] **步骤 4：跑单元测试和原始附件集成检查**
 
@@ -196,3 +196,43 @@ git commit -m "增加电工杯 A 题问题一基准模型"
 ```
 
 本阶段只完成问题一。后续依次增加问题二 CP-SAT 开停调度、问题三连续功率调度、问题四储能和容量设计、问题五带来源的定性报告；不得据此宣称整道 A 题已经通过验收。
+
+## Task 6：自然语言草稿审阅后再求解
+
+**文件：** 修改 `src/math_modeling_agent/cli.py`、`tests/test_cli.py`、`README.md`。
+
+- [ ] **步骤 1：将 ready 请求测试改为确认求解器未调用**
+
+保留现有 ready 排班分析夹具，替换原来直接求解的断言：猴子补丁把 `run_modeling` 替换为立即触发 `pytest.fail()` 的函数；调用 `main(["--request", ...])` 后断言有结构化草稿、状态为 `ready`，且 JSON 不含 `modeling_run`。
+
+- [ ] **步骤 2：运行并确认旧自动求解行为使测试失败**
+
+```powershell
+& D:\Agent\.venv\Scripts\python.exe -m pytest tests\test_cli.py::test_cli_ready_request_returns_draft_without_solving -q
+```
+
+预期：旧代码调用 `run_modeling`，触发测试中的 `pytest.fail()`。
+
+- [ ] **步骤 3：增加显式确认的草稿文件入口**
+
+将 `--solve-draft <JSON文件>` 加入 CLI 互斥输入组。`--request` 只输出分析和方法建议。`--solve-draft` 读取完整 `analysis` 对象、调用 `ProblemAnalysis.model_validate()` 重新校验，然后按已确认的 `problem_family` 调用对应领域适配器。文件格式无效、状态不是 `ready`、或领域没有实现适配器时返回退出码 `2`；求解未通过 validator 时返回 `1`。
+
+- [ ] **步骤 4：测试显式确认路径**
+
+在 `tests/test_cli.py` 中构造 ready 排班分析，将 `{"analysis": analysis.model_dump(mode="json"), "method_recommendations": {}}` 写入 `tmp_path / "draft.json"`，调用 `main(["--solve-draft", str(path)])`，断言求解状态可行且 validator 通过。另测畸形 JSON 返回 `2`，非 ready 草稿不会调用求解器。
+
+```powershell
+& D:\Agent\.venv\Scripts\python.exe -m pytest tests\test_cli.py::test_cli_ready_request_returns_draft_without_solving tests\test_cli.py::test_cli_solve_confirmed_draft_runs_local_solver -q
+```
+
+- [ ] **步骤 5：更新 README 的真实流程**
+
+说明 `--request` 只产出待审阅模型；保存输出 JSON、在 PyCharm 中检查变量/目标/约束/来源，再通过 `--solve-draft` 显式求解。说明 `--energy-park-q1` 是题一计算入口，并保留安装 `.[dev,agent,energy]` 的 PowerShell 命令。
+
+- [ ] **步骤 6：回归测试和提交**
+
+```powershell
+& D:\Agent\.venv\Scripts\python.exe -m pytest -p no:cacheprovider -q
+git add README.md src/math_modeling_agent/cli.py tests/test_cli.py
+git commit -m "要求确认自然语言模型后再求解"
+```

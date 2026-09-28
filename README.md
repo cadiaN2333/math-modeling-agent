@@ -1,6 +1,6 @@
-# 排班数学建模 Agent
+# 运筹优化数学建模 Agent
 
-这是一个使用 OR-Tools 求解排班问题的可验证建模项目。当前版本包含结构化问题校验、CP-SAT 排班求解、独立结果验证，以及一个可运行的内置样例。
+项目将自然语言问题整理成可审阅的结构化模型，并用 OR-Tools 求解和独立校验。目前实现员工排班、连续单目标线性规划、单商品最小费用流；电工杯 A 题只完成问题一典型日基准计算。
 
 ## 环境
 
@@ -8,13 +8,14 @@
 - OR-Tools
 - Pydantic
 - pytest（开发和测试）
+- openpyxl（读取能源园区 XLSX 附件）
 
 ## 安装
 
 在项目根目录 `D:\Agent` 的 PowerShell 终端中运行：
 
 ```powershell
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,agent,energy]"
 ```
 
 ## 运行排班样例
@@ -63,6 +64,16 @@ JSON 文件需要包含 `employees`、`shifts` 和 `coverage_requirements` 三�
 
 `skills` 是字符串数组；`required_skill_counts` 的键是技能名称，值是该班所需的具备该技能的人数。程序会在求解前校验 JSON 和排班字段。
 
+## 电工杯 A 题问题一
+
+安装 `energy` 可选依赖后，提供题目附件目录即可计算典型日 24 小时功率平衡：
+
+```powershell
+python -m math_modeling_agent.cli --energy-park-q1 "D:\Agent\例题\电工杯A"
+```
+
+结果包括负荷、风光出力、购售电、绿电比例的题面口径和物理口径、成本组成及独立校验报告。第一项自用比例的题面公式会与物理口径分别报告；固定资本摊销假设也会写入结果。当前此入口只实现问题一，不代表 A 题五问均已完成。
+
 ## 运行测试
 
 ```powershell
@@ -77,14 +88,26 @@ python -m pytest -p no:cacheprovider -q
 
 自然语言分析使用 DeepSeek V4.1 Flash；DeepSeek API 中对应的模型名是 deepseek-flash。模型输出会经过 Pydantic 结构校验，再为每个子任务检索 HMML。API 密钥只从环境变量读取，不要写进源码或提交到仓库。
 
-在 PowerShell 中安装可选依赖并设置本窗口环境变量：
+在项目根目录创建 `.env`，写入自己的模型配置；不要把真实密钥写进源码或提交到 Git：
 
-    python -m pip install -e ".[dev,agent]"
-    $env:DEEPSEEK_API_KEY = "你的 DeepSeek API 密钥"
-    $env:DEEPSEEK_MODEL = "deepseek-flash"
-    python -m math_modeling_agent.cli --request "有三名员工，林晓有急救技能且最多工作八小时；安排两个八小时班次，每班至少一人，第一个班必须有急救技能。"
+```dotenv
+DEEPSEEK_API_KEY=你的密钥
+DEEPSEEK_MODEL=deepseek-flash
+```
 
-该命令会返回问题状态、已知条件、缺失信息、追问、子任务和 HMML 方法建议。当前阶段负责分析与拆分；把分析结果进一步转换成内部排班模型并自动求解，是后续步骤。
+先分析并生成结构化草稿：
+
+```powershell
+python -m math_modeling_agent.cli --request "有三名员工，林晓有急救技能且最多工作八小时；安排两个八小时班次，每班至少一人，第一个班必须有急救技能。" | Set-Content -Encoding utf8 .\draft.json
+```
+
+检查 `draft.json` 中的事实、变量、目标和约束，确认它们符合原始问题后，再显式提交求解：
+
+```powershell
+python -m math_modeling_agent.cli --solve-draft .\draft.json
+```
+
+`--request` 只分析，不启动求解器。`--solve-draft` 会重新校验草稿，再选择已实现的领域适配器并独立检查结果。
 
 ## 当前模型范围
 
@@ -94,4 +117,6 @@ python -m pytest -p no:cacheprovider -q
 - 优化目标是满足约束的同时减少总排班分钟数。
 - 班次当前只记录时长，没有起止时间，因此还不能检查班次是否重叠。
 
-`--sample` 使用固定的示例数据；`--input` 允许提供自己的 JSON 排班问题。当前版本不连接外部模型 API，后续可以在此基础上加入自然语言需求解析。
+`--sample` 使用固定的排班示例；`--input` 接收用户直接提供的结构化排班问题。对于 `--request` 生成的自然语言草稿，只有用户审阅后通过 `--solve-draft` 提交才会求解。
+
+当前能源园区模型支持读取 8 个题目附件并计算问题一。问题二的离散开停调度、问题三的连续调度、问题四的储能配置和问题五的政策分析仍在后续实现范围内。Evals 默认离线检查案例文件；只有显式使用 `--live` 才调用 DeepSeek 并消耗配额。
