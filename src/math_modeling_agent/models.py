@@ -66,6 +66,54 @@ class SchedulingProblem(BaseModel):
         return self
 
 
+class FlowNode(BaseModel):
+    """网络流中的节点；正供给为供货，负供给为需求，零表示中转。"""
+
+    node_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    supply: int = Field(strict=True)
+
+
+class FlowArc(BaseModel):
+    """有向网络边，记录容量和每个流量单位的整数费用。"""
+
+    arc_id: str = Field(min_length=1)
+    from_node: str = Field(min_length=1)
+    to_node: str = Field(min_length=1)
+    capacity: int = Field(ge=0, strict=True)
+    unit_cost: int = Field(strict=True)
+
+
+class MinCostFlowProblem(BaseModel):
+    """单商品、整数单位的最小费用网络流输入。"""
+
+    nodes: list[FlowNode] = Field(min_length=2)
+    arcs: list[FlowArc] = Field(min_length=1)
+    flow_unit: str = Field(min_length=1)
+    cost_unit: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_graph_references(self) -> "MinCostFlowProblem":
+        """检查节点和边编号唯一、端点存在，并拒绝自连边。"""
+
+        node_ids = [node.node_id for node in self.nodes]
+        if len(node_ids) != len(set(node_ids)):
+            raise ValueError("节点编号不能重复")
+
+        arc_ids = [arc.arc_id for arc in self.arcs]
+        if len(arc_ids) != len(set(arc_ids)):
+            raise ValueError("路线编号不能重复")
+
+        known_node_ids = set(node_ids)
+        for arc in self.arcs:
+            if arc.from_node == arc.to_node:
+                raise ValueError("路线不能连接节点自身")
+            if arc.from_node not in known_node_ids or arc.to_node not in known_node_ids:
+                raise ValueError("路线引用了不存在的节点")
+
+        return self
+
+
 class LinearVariable(BaseModel):
     """LP 决策变量的名称和单位。变量界限用显式线性约束表示。"""
 

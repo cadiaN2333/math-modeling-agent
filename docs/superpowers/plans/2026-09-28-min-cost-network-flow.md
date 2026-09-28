@@ -144,7 +144,7 @@ def make_transport_eval_payload():
 
 **文件：** `src/math_modeling_agent/models.py`、`tests/test_models.py`
 
-- [ ] **步骤 1：先写会失败的模型测试。** 在 `tests/min_cost_flow_fixtures.py` 按“共享测试数据”一节添加固定运输问题构造器和 ready 分析构造器；在 `tests/test_models.py` 测试 W1/W2 供给 20/30、S1/S2 净需求 -25/-25 及四条路线可正确构造；再测试重复节点/边 ID、未知端点、负容量、小数容量或费用被拒绝。供需不平衡应允许进入模型，以便由求解器报告 `INFEASIBLE`。
+- [x] **步骤 1：先写会失败的模型测试。** 在 `tests/min_cost_flow_fixtures.py` 按“共享测试数据”一节添加固定运输问题构造器和 ready 分析构造器；在 `tests/test_models.py` 测试 W1/W2 供给 20/30、S1/S2 净需求 -25/-25 及四条路线可正确构造；再测试重复节点/边 ID、未知端点、负容量、小数容量或费用被拒绝。供需不平衡应允许进入模型，以便由求解器报告 `INFEASIBLE`。
 
 ```python
 def test_network_flow_rejects_unknown_arc_endpoint() -> None:
@@ -158,7 +158,7 @@ def test_network_flow_rejects_unknown_arc_endpoint() -> None:
     with pytest.raises(ValidationError):
         MinCostFlowProblem.model_validate(raw)
 ```
-- [ ] **步骤 2：运行红灯测试。**
+- [x] **步骤 2：运行红灯测试。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -168,7 +168,7 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：新增测试因 `MinCostFlowProblem` 尚不存在而失败。
 
-- [ ] **步骤 3：实现最小内部模型。** 添加下列数据结构，并在 `MinCostFlowProblem` 的 `model_validator` 中检查 node/arc 编号唯一、边端点存在且不能自连。容量必须是非负严格整数；净供给和单位费用必须是严格整数；并行边允许但必须有不同 `arc_id`。
+- [x] **步骤 3：实现最小内部模型。** 添加下列数据结构，并在 `MinCostFlowProblem` 的 `model_validator` 中检查 node/arc 编号唯一、边端点存在且不能自连。容量必须是非负严格整数；净供给和单位费用必须是严格整数；并行边允许但必须有不同 `arc_id`。
 
 ```python
 class FlowNode(BaseModel):
@@ -192,8 +192,8 @@ class MinCostFlowProblem(BaseModel):
     cost_unit: str = Field(min_length=1)
 ```
 
-- [ ] **步骤 4：运行模型测试确认通过。** 重用步骤 2 命令；预期全部 `tests/test_models.py` 通过。
-- [ ] **步骤 5：提交模型层。** 使用中文提交说明 `增加最小费用流内部模型`。
+- [x] **步骤 4：运行模型测试确认通过。** 重用步骤 2 命令；预期全部 `tests/test_models.py` 通过。
+- [x] **步骤 5：提交模型层。** 使用中文提交说明 `增加最小费用流内部模型`。
 
 ## 任务二：SimpleMinCostFlow 求解器
 

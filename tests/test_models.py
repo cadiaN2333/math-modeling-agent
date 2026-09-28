@@ -208,3 +208,126 @@ def test_linear_program_rejects_unknown_variable_references() -> None:
             ),
             constraints=[],
         )
+
+
+def test_valid_min_cost_flow_preserves_nodes_arcs_and_units() -> None:
+    from min_cost_flow_fixtures import EXPECTED_ARC_FLOWS, make_transport_problem
+
+    problem = make_transport_problem()
+
+    assert [node.supply for node in problem.nodes] == [20, 30, -25, -25]
+    assert {arc.arc_id for arc in problem.arcs} == set(EXPECTED_ARC_FLOWS)
+    assert problem.flow_unit == "箱"
+    assert problem.cost_unit == "元/箱"
+
+
+def test_min_cost_flow_rejects_duplicate_node_ids() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    raw = make_transport_problem().model_dump()
+    raw["nodes"][1]["node_id"] = raw["nodes"][0]["node_id"]
+
+    with pytest.raises(ValidationError, match="节点编号不能重复"):
+        MinCostFlowProblem.model_validate(raw)
+
+
+def test_min_cost_flow_rejects_duplicate_arc_ids() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    raw = make_transport_problem().model_dump()
+    raw["arcs"][1]["arc_id"] = raw["arcs"][0]["arc_id"]
+
+    with pytest.raises(ValidationError, match="路线编号不能重复"):
+        MinCostFlowProblem.model_validate(raw)
+
+
+def test_min_cost_flow_rejects_unknown_arc_endpoint() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    raw = make_transport_problem().model_dump()
+    raw["arcs"][0]["to_node"] = "UNKNOWN"
+
+    with pytest.raises(ValidationError, match="路线引用了不存在的节点"):
+        MinCostFlowProblem.model_validate(raw)
+
+
+def test_min_cost_flow_rejects_self_loop() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    raw = make_transport_problem().model_dump()
+    raw["arcs"][0]["to_node"] = raw["arcs"][0]["from_node"]
+
+    with pytest.raises(ValidationError, match="路线不能连接节点自身"):
+        MinCostFlowProblem.model_validate(raw)
+
+
+def test_min_cost_flow_rejects_negative_or_fractional_capacity() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    negative_capacity = make_transport_problem().model_dump()
+    negative_capacity["arcs"][0]["capacity"] = -1
+    with pytest.raises(ValidationError):
+        MinCostFlowProblem.model_validate(negative_capacity)
+
+    fractional_capacity = make_transport_problem().model_dump()
+    fractional_capacity["arcs"][0]["capacity"] = 1.5
+    with pytest.raises(ValidationError):
+        MinCostFlowProblem.model_validate(fractional_capacity)
+
+
+def test_min_cost_flow_rejects_fractional_supply_and_unit_cost() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    fractional_supply = make_transport_problem().model_dump()
+    fractional_supply["nodes"][0]["supply"] = 1.5
+    with pytest.raises(ValidationError):
+        MinCostFlowProblem.model_validate(fractional_supply)
+
+    fractional_cost = make_transport_problem().model_dump()
+    fractional_cost["arcs"][0]["unit_cost"] = 1.5
+    with pytest.raises(ValidationError):
+        MinCostFlowProblem.model_validate(fractional_cost)
+
+
+def test_min_cost_flow_allows_unbalanced_supply_for_solver_to_report() -> None:
+    from math_modeling_agent.models import MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    raw = make_transport_problem().model_dump()
+    raw["nodes"][3]["supply"] = -24
+    problem = MinCostFlowProblem.model_validate(raw)
+
+    assert sum(node.supply for node in problem.nodes) == 1
+
+
+def test_min_cost_flow_allows_parallel_routes_with_distinct_ids() -> None:
+    from math_modeling_agent.models import FlowArc, MinCostFlowProblem
+    from min_cost_flow_fixtures import make_transport_problem
+
+    problem = make_transport_problem()
+    parallel_route = FlowArc(
+        arc_id="W1_S1_alt",
+        from_node="W1",
+        to_node="S1",
+        capacity=5,
+        unit_cost=3,
+    )
+    expanded_problem = MinCostFlowProblem(
+        nodes=problem.nodes,
+        arcs=[*problem.arcs, parallel_route],
+        flow_unit=problem.flow_unit,
+        cost_unit=problem.cost_unit,
+    )
+
+    matching_routes = [
+        arc
+        for arc in expanded_problem.arcs
+        if arc.from_node == "W1" and arc.to_node == "S1"
+    ]
+    assert len(matching_routes) == 2
