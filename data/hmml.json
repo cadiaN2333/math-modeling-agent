@@ -8,6 +8,27 @@
       "goal_keywords": ["最优", "满足约束", "成本", "效率", "收益"],
       "subdomains": [
         {
+          "id": "continuous_linear_programming",
+          "name": "连续线性规划",
+          "problem_keywords": ["线性规划", "连续变量", "线性约束", "生产计划", "资源配置", "LP"],
+          "goal_keywords": ["最大化利润", "最小化成本", "优化线性目标", "满足资源限制"],
+          "methods": [
+            {
+              "id": "continuous_linear_programming",
+              "name": "连续线性规划与 GLOP",
+              "aliases": ["LP", "线性规划", "连续线性规划", "GLOP"],
+              "problem_keywords": ["连续变量", "线性规划", "生产计划", "资源约束", "线性不等式"],
+              "goal_keywords": ["最大化利润", "最小化成本", "线性目标", "最优解"],
+              "core_idea": "用连续变量表示决策数量，以线性目标和线性约束刻画资源分配问题。",
+              "use_when": ["决策变量为连续数值", "目标与限制均为线性表达式", "只有一个优化目标"],
+              "assumptions": ["所有系数和资源边界已知", "连续变量符合实际业务含义"],
+              "limitations": ["不支持整数或二进制变量", "不支持非线性及多目标问题", "运输网络流将由专用适配器处理"],
+              "implementation_status": "已实现",
+              "solver": "OR-Tools GLOP"
+            }
+          ]
+        },
+        {
           "id": "scheduling_and_allocation",
           "name": "排班与资源分配",
           "problem_keywords": ["排班", "员工", "班次", "工时", "技能", "覆盖人数", "人员安排", "资源分配"],

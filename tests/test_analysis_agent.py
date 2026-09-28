@@ -8,14 +8,110 @@ def test_problem_analysis_schema_avoids_anyof_for_deepseek() -> None:
     schema = ProblemAnalysis.model_json_schema()
 
     assert "anyOf" not in json.dumps(schema)
+    assert "problem_family" in schema["properties"]
+    assert "linear_program_draft" in schema["properties"]
+    assert "problem_family" in schema["required"]
+    assert "linear_program_draft" in schema["required"]
 
 
 def test_analysis_instructions_limit_current_domain_to_scheduling() -> None:
     from math_modeling_agent.analysis_agent import ANALYSIS_INSTRUCTIONS
 
-    assert "只支持员工排班" in ANALYSIS_INSTRUCTIONS
+    assert "员工排班和连续线性规划" in ANALYSIS_INSTRUCTIONS
     assert "运输/网络流" in ANALYSIS_INSTRUCTIONS
     assert "unsupported" in ANALYSIS_INSTRUCTIONS
+
+
+def test_analysis_instructions_limit_lp_to_continuous_single_objective() -> None:
+    from math_modeling_agent.analysis_agent import ANALYSIS_INSTRUCTIONS
+
+    assert "连续变量" in ANALYSIS_INSTRUCTIONS
+    assert "单目标" in ANALYSIS_INSTRUCTIONS
+    assert "整数或二进制变量" in ANALYSIS_INSTRUCTIONS
+    assert "非线性" in ANALYSIS_INSTRUCTIONS
+
+
+def test_analysis_downgrades_vague_unsupported_to_clarification_when_data_is_missing() -> None:
+    from types import SimpleNamespace
+
+    from math_modeling_agent.analysis_agent import (
+        LinearProgramDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+        analyze_problem,
+    )
+
+    analysis = ProblemAnalysis(
+        status="unsupported",
+        problem_family="employee_scheduling",
+        summary="排班所需员工信息不完整。",
+        known_facts=["林晓要上第一班"],
+        missing_information=["其他员工名单", "每名员工的最大工时"],
+        clarifying_questions=["请补充员工名单和每人的最大工时。"],
+        unsupported_reasons=["输入信息尚未完整，暂时无法直接生成方案。"],
+        subtasks=[],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[],
+            objective_direction="not_applicable",
+            objective_terms=[],
+            constraints=[],
+        ),
+    )
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            parse=lambda **arguments: SimpleNamespace(output_parsed=analysis)
+        )
+    )
+
+    result = analyze_problem("员工和工时信息未齐全", client=client)
+
+    assert result.status == "needs_clarification"
+    assert result.unsupported_reasons == []
+    assert result.missing_information == analysis.missing_information
+
+
+def test_analysis_keeps_explicit_unsupported_feature_even_if_data_is_missing() -> None:
+    from types import SimpleNamespace
+
+    from math_modeling_agent.analysis_agent import (
+        LinearProgramDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+        analyze_problem,
+    )
+
+    analysis = ProblemAnalysis(
+        status="unsupported",
+        problem_family="employee_scheduling",
+        summary="用户要求排班并限制班次时间重叠。",
+        known_facts=[],
+        missing_information=["员工名单"],
+        clarifying_questions=["请补充员工名单。"],
+        unsupported_reasons=["当前版本尚不支持班次时间重叠约束。"],
+        subtasks=[],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[],
+            objective_direction="not_applicable",
+            objective_terms=[],
+            constraints=[],
+        ),
+    )
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            parse=lambda **arguments: SimpleNamespace(output_parsed=analysis)
+        )
+    )
+
+    result = analyze_problem("带时间重叠约束的排班", client=client)
+
+    assert result.status == "unsupported"
+    assert result.unsupported_reasons == analysis.unsupported_reasons
 
 
 class FakeResponses:
@@ -26,6 +122,17 @@ class FakeResponses:
     def parse(self, **arguments):
         self.arguments = arguments
         return SimpleNamespace(output_parsed=self.parsed_result)
+
+
+def empty_linear_program_draft():
+    from math_modeling_agent.analysis_agent import LinearProgramDraft
+
+    return LinearProgramDraft(
+        variables=[],
+        objective_direction="not_applicable",
+        objective_terms=[],
+        constraints=[],
+    )
 
 
 def test_load_project_environment_uses_root_env_without_override(monkeypatch) -> None:
@@ -58,6 +165,7 @@ def test_analyzer_uses_deepseek_structured_responses() -> None:
 
     expected = ProblemAnalysis(
         status="needs_clarification",
+        problem_family="employee_scheduling",
         summary="用户希望安排员工班次。",
         known_facts=["需要排班"],
         missing_information=["员工人数"],
@@ -67,6 +175,7 @@ def test_analyzer_uses_deepseek_structured_responses() -> None:
         scheduling_draft=SchedulingDraft(
             employees=[], shifts=[], coverage_requirements=[]
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
     responses = FakeResponses(expected)
     client = SimpleNamespace(responses=responses)
@@ -89,6 +198,7 @@ def test_analyzer_loads_project_environment_before_default_client(monkeypatch) -
 
     expected = ProblemAnalysis(
         status="needs_clarification",
+        problem_family="employee_scheduling",
         summary="需要员工信息。",
         known_facts=[],
         missing_information=["员工人数"],
@@ -98,6 +208,7 @@ def test_analyzer_loads_project_environment_before_default_client(monkeypatch) -
         scheduling_draft=SchedulingDraft(
             employees=[], shifts=[], coverage_requirements=[]
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
     calls = []
     monkeypatch.setattr(
@@ -146,6 +257,7 @@ def test_ready_analysis_retrieves_hmml_methods_for_each_subtask() -> None:
 
     analysis = ProblemAnalysis(
         status="ready",
+        problem_family="employee_scheduling",
         summary="为员工安排符合技能与工时要求的班次。",
         known_facts=["每班至少一人"],
         missing_information=[],
@@ -182,6 +294,7 @@ def test_ready_analysis_retrieves_hmml_methods_for_each_subtask() -> None:
                 )
             ],
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
 
     recommendations = retrieve_methods_for_subtasks(analysis)
@@ -199,6 +312,7 @@ def test_incomplete_analysis_does_not_retrieve_methods() -> None:
 
     analysis = ProblemAnalysis(
         status="needs_clarification",
+        problem_family="employee_scheduling",
         summary="需要更多排班信息。",
         known_facts=[],
         missing_information=["员工人数"],
@@ -208,6 +322,7 @@ def test_incomplete_analysis_does_not_retrieve_methods() -> None:
         scheduling_draft=SchedulingDraft(
             employees=[], shifts=[], coverage_requirements=[]
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
 
     assert retrieve_methods_for_subtasks(analysis) == {}
@@ -227,6 +342,7 @@ def test_ready_analysis_converts_to_solver_problem() -> None:
 
     analysis = ProblemAnalysis(
         status="ready",
+        problem_family="employee_scheduling",
         summary="为急救员和普通员工安排两个班次。",
         known_facts=["两个班次各8小时"],
         missing_information=[],
@@ -277,6 +393,7 @@ def test_ready_analysis_converts_to_solver_problem() -> None:
                 ),
             ],
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
 
     problem = to_scheduling_problem(analysis)
@@ -284,3 +401,94 @@ def test_ready_analysis_converts_to_solver_problem() -> None:
     assert problem.employees[0].skills == {"急救"}
     assert problem.coverage_requirements[0].required_skill_counts == {"急救": 1}
     assert problem.coverage_requirements[1].required_skill_counts == {}
+
+
+def test_ready_linear_program_analysis_converts_to_internal_problem() -> None:
+    from math_modeling_agent.analysis_agent import (
+        AnalysisSubtask,
+        LinearConstraintDraft,
+        LinearProgramDraft,
+        LinearTermDraft,
+        LinearVariableDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+        to_linear_program_problem,
+    )
+
+    analysis = ProblemAnalysis(
+        status="ready",
+        problem_family="linear_programming",
+        summary="最大化两种产品的利润。",
+        known_facts=["工时上限为100小时", "原料上限为80单位"],
+        missing_information=[],
+        clarifying_questions=[],
+        unsupported_reasons=[],
+        subtasks=[
+            AnalysisSubtask(
+                task_id="T1",
+                description="建立产品产量线性规划。",
+                objective="最大化总利润。",
+                data_needed=[],
+                depends_on=[],
+                hmml_problem_query="连续变量、线性目标和资源约束的生产计划问题",
+                hmml_goal_query="最大化利润并满足工时和原料限制",
+            )
+        ],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[
+                LinearVariableDraft(name="A", unit="件"),
+                LinearVariableDraft(name="B", unit="件"),
+            ],
+            objective_direction="maximize",
+            objective_terms=[
+                LinearTermDraft(variable="A", coefficient=40),
+                LinearTermDraft(variable="B", coefficient=30),
+            ],
+            constraints=[
+                LinearConstraintDraft(
+                    constraint_id="labor",
+                    terms=[
+                        LinearTermDraft(variable="A", coefficient=2),
+                        LinearTermDraft(variable="B", coefficient=1),
+                    ],
+                    relation="<=",
+                    rhs=100,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="material",
+                    terms=[
+                        LinearTermDraft(variable="A", coefficient=1),
+                        LinearTermDraft(variable="B", coefficient=1),
+                    ],
+                    relation="<=",
+                    rhs=80,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="A_nonnegative",
+                    terms=[LinearTermDraft(variable="A", coefficient=1)],
+                    relation=">=",
+                    rhs=0,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="B_nonnegative",
+                    terms=[LinearTermDraft(variable="B", coefficient=1)],
+                    relation=">=",
+                    rhs=0,
+                ),
+            ],
+        ),
+    )
+
+    problem = to_linear_program_problem(analysis)
+
+    assert [variable.name for variable in problem.variables] == ["A", "B"]
+    assert problem.objective.direction == "maximize"
+    assert [constraint.name for constraint in problem.constraints] == [
+        "labor",
+        "material",
+        "A_nonnegative",
+        "B_nonnegative",
+    ]

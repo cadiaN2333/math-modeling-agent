@@ -8,10 +8,12 @@ from pathlib import Path
 
 from .analysis_agent import (
     analyze_problem,
+    to_linear_program_problem,
     retrieve_methods_for_subtasks,
     to_scheduling_problem,
 )
 from .agent import run_modeling
+from .linear_agent import run_linear_modeling
 from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
 
@@ -19,7 +21,7 @@ from .sample_data import make_sample_problem
 def main(argv: list[str] | None = None, *, llm_client=None) -> int:
     """运行样例、JSON 输入或 DeepSeek 自然语言分析。"""
 
-    parser = argparse.ArgumentParser(description="可验证的排班建模示例")
+    parser = argparse.ArgumentParser(description="可验证的运筹优化数学建模 Agent")
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--sample",
@@ -57,12 +59,17 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
 
         if analysis.status == "ready":
             try:
-                problem = to_scheduling_problem(analysis)
+                if analysis.problem_family == "employee_scheduling":
+                    problem = to_scheduling_problem(analysis)
+                    modeling_run = run_modeling(problem)
+                elif analysis.problem_family == "linear_programming":
+                    problem = to_linear_program_problem(analysis)
+                    modeling_run = run_linear_modeling(problem)
+                else:
+                    raise ValueError("当前问题领域没有已实现的求解适配器")
             except ValueError as exc:
-                print(f"排班草稿校验失败：{exc}", file=sys.stderr)
+                print(f"领域草稿校验失败：{exc}", file=sys.stderr)
                 return 2
-
-            modeling_run = run_modeling(problem)
             payload["modeling_run"] = asdict(modeling_run)
 
         print(json.dumps(payload, ensure_ascii=False, indent=2))

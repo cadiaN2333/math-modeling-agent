@@ -184,23 +184,164 @@ def test_eval_case_compares_structured_model_without_list_order_sensitivity() ->
     assert model_check["passed"] is True
 
 
-def test_eval_dataset_has_eight_unique_valid_domain_cases() -> None:
+def test_eval_case_scores_linear_program_structure_values_and_objective() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    expected_model = {
+        "variables": [
+            {"name": "A", "unit": "件"},
+            {"name": "B", "unit": "件"},
+        ],
+        "objective_direction": "maximize",
+        "objective_terms": [
+            {"variable": "A", "coefficient": 40.0},
+            {"variable": "B", "coefficient": 30.0},
+        ],
+        "constraints": [
+            {
+                "constraint_id": "labor",
+                "terms": [
+                    {"variable": "A", "coefficient": 2.0},
+                    {"variable": "B", "coefficient": 1.0},
+                ],
+                "relation": "<=",
+                "rhs": 100.0,
+            }
+        ],
+    }
+    case = {
+        "id": "lp_production",
+        "family": "linear_programming",
+        "expected_analysis_status": "ready",
+        "expected_model": expected_model,
+        "expected_solver_statuses": ["OPTIMAL"],
+        "expected_method_id": "continuous_linear_programming",
+        "expected_validation": "valid",
+        "expected_variable_values": {"A": 20.0, "B": 60.0},
+        "expected_objective_value": 2600.0,
+    }
+    actual_model = {
+        **expected_model,
+        "variables": list(reversed(expected_model["variables"])),
+        "objective_terms": list(reversed(expected_model["objective_terms"])),
+        "constraints": [
+            {
+                **expected_model["constraints"][0],
+                "terms": list(reversed(expected_model["constraints"][0]["terms"])),
+            }
+        ],
+    }
+    payload = {
+        "analysis": {
+            "status": "ready",
+            "problem_family": "linear_programming",
+            "linear_program_draft": actual_model,
+        },
+        "modeling_run": {
+            "solver_result": {
+                "status": "OPTIMAL",
+                "variable_values": {"A": 20.0000001, "B": 59.9999999},
+                "objective_value": 2600.0000005,
+            },
+            "validation_report": {"is_valid": True},
+            "method_recommendations": [
+                {
+                    "method_id": "continuous_linear_programming",
+                    "implementation_status": "已实现",
+                }
+            ],
+        },
+    }
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is True
+    assert {check["name"] for check in result["checks"]} >= {
+        "structured_model",
+        "variable_values",
+        "objective_value",
+    }
+
+
+def test_live_eval_routes_ready_linear_program_to_lp_adapter(monkeypatch, capsys) -> None:
+    from types import SimpleNamespace
+
+    from math_modeling_agent import evals
+
+    case = next(
+        item
+        for item in evals.load_eval_cases()
+        if item["id"] == "linear_programming_production_plan"
+    )
+    analysis_data = {
+        "status": "ready",
+        "problem_family": "linear_programming",
+        "linear_program_draft": case["expected_model"],
+    }
+    analysis = SimpleNamespace(
+        status="ready",
+        problem_family="linear_programming",
+        model_dump=lambda mode: analysis_data,
+    )
+    calls = []
+    modeling_run = {
+        "solver_result": {
+            "status": "OPTIMAL",
+            "variable_values": {"A": 20.0, "B": 60.0},
+            "objective_value": 2600.0,
+        },
+        "validation_report": {"is_valid": True, "errors": []},
+        "method_recommendations": [
+            {
+                "method_id": "continuous_linear_programming",
+                "implementation_status": "已实现",
+            }
+        ],
+    }
+    monkeypatch.setattr(evals, "to_linear_program_problem", lambda item: "lp-problem")
+    monkeypatch.setattr(
+        evals,
+        "run_linear_modeling",
+        lambda problem: calls.append(problem) or object(),
+    )
+    monkeypatch.setattr(evals, "asdict", lambda result: modeling_run)
+
+    exit_code = evals.main(
+        ["--live", "--case-id", case["id"]],
+        analyzer=lambda request: analysis,
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert calls == ["lp-problem"]
+    assert report["results"][0]["passed"] is True
+
+
+def test_eval_dataset_has_nine_unique_valid_domain_cases() -> None:
     from math_modeling_agent.evals import load_eval_cases
 
     cases = load_eval_cases()
     case_ids = [case["id"] for case in cases]
 
-    assert len(cases) == 8
+    assert len(cases) == 9
     assert len(case_ids) == len(set(case_ids))
     assert {case["family"] for case in cases} == {
         "scheduling",
         "linear_programming",
         "transportation",
     }
+    assert next(
+        case for case in cases if case["id"] == "linear_programming_production_plan"
+    )["expected_analysis_status"] == "ready"
+    assert next(
+        case for case in cases if case["id"] == "unsupported_transportation_network_flow"
+    )["expected_analysis_status"] == "unsupported"
     assert all(
-        case["expected_analysis_status"] == "unsupported"
+        case.get("expected_model")
+        and case.get("expected_method_id") == "continuous_linear_programming"
         for case in cases
-        if case["family"] != "scheduling"
+        if case["family"] == "linear_programming"
+        and case["expected_analysis_status"] == "ready"
     )
     assert all(case["request"].strip() for case in cases)
     assert all(case["expected_analysis_status"] in {
@@ -226,29 +367,40 @@ def test_evals_cli_defaults_to_offline_without_calling_analyzer(capsys) -> None:
 
     assert exit_code == 0
     assert report["mode"] == "offline_validation"
-    assert report["case_count"] == 8
+    assert report["case_count"] == 9
     assert report["api_calls"] == 0
 
 
 def test_live_eval_uses_injected_analyzer_for_unsupported_case(capsys) -> None:
-    from math_modeling_agent.analysis_agent import ProblemAnalysis, SchedulingDraft
+    from math_modeling_agent.analysis_agent import (
+        LinearProgramDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+    )
     from math_modeling_agent.evals import load_eval_cases, main
 
     case = next(
         item
         for item in load_eval_cases()
-        if item["id"] == "unsupported_linear_programming_production_plan"
+        if item["id"] == "unsupported_transportation_network_flow"
     )
     analysis = ProblemAnalysis(
         status="unsupported",
-        summary="这是生产计划线性规划问题。当前系统只支持员工排班。",
-        known_facts=["用户希望决定生产计划。"],
+        problem_family="other",
+        summary="这是运输与网络流优化问题。当前系统暂不支持该领域。",
+        known_facts=["用户希望安排仓库与门店运输。"],
         missing_information=[],
         clarifying_questions=[],
-        unsupported_reasons=["生产计划线性规划尚未支持，当前系统只支持员工排班。"],
+        unsupported_reasons=["当前版本尚未实现运输/网络流求解器。"],
         subtasks=[],
         scheduling_draft=SchedulingDraft(
             employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[],
+            objective_direction="not_applicable",
+            objective_terms=[],
+            constraints=[],
         ),
     )
     received_requests = []
@@ -287,6 +439,7 @@ def test_live_eval_runs_local_solver_and_reports_ready_metrics(monkeypatch, caps
     }
     analysis = SimpleNamespace(
         status="ready",
+        problem_family="employee_scheduling",
         model_dump=lambda mode: analysis_data,
     )
     calls = []

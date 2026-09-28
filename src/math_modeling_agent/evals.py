@@ -7,12 +7,28 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable
 
-from .analysis_agent import analyze_problem, to_scheduling_problem
+from .analysis_agent import (
+    analyze_problem,
+    to_linear_program_problem,
+    to_scheduling_problem,
+)
 from .agent import ModelingRun, run_modeling
+from .linear_agent import LinearModelingRun, run_linear_modeling
 
 
 ANALYSIS_STATUSES = {"ready", "needs_clarification", "unsupported"}
-SOLVER_STATUSES = {"OPTIMAL", "FEASIBLE", "INFEASIBLE", "MODEL_INVALID", "UNKNOWN"}
+SOLVER_STATUSES = {
+    "OPTIMAL",
+    "FEASIBLE",
+    "INFEASIBLE",
+    "UNBOUNDED",
+    "INFEASIBLE_OR_UNBOUNDED",
+    "MODEL_INVALID",
+    "SOLVER_UNAVAILABLE",
+    "ABNORMAL",
+    "NOT_SOLVED",
+    "UNKNOWN",
+}
 ANALYSIS_TEXT_FIELDS = {
     "summary",
     "known_facts",
@@ -124,6 +140,46 @@ def _normalize_scheduling_draft(draft: Any) -> Any:
     return normalized
 
 
+def _normalize_linear_program_draft(draft: Any) -> Any:
+    """按变量名和系数项排序，避免 LP 列表顺序导致误报。"""
+
+    if not isinstance(draft, dict):
+        return draft
+
+    normalized = dict(draft)
+    normalized["variables"] = sorted(
+        (dict(variable) for variable in draft.get("variables", [])),
+        key=lambda item: item.get("name", ""),
+    )
+
+    def normalize_terms(terms: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return sorted(
+            (dict(term) for term in terms),
+            key=lambda item: (item.get("variable", ""), item.get("coefficient", 0)),
+        )
+
+    normalized["objective_terms"] = normalize_terms(draft.get("objective_terms", []))
+    constraints = []
+    for constraint in draft.get("constraints", []):
+        item = dict(constraint)
+        item["terms"] = normalize_terms(item.get("terms", []))
+        # 约束 ID 常由模型自动生成，不改变数学含义，因此不用于结构评分。
+        item.pop("constraint_id", None)
+        constraints.append(item)
+    normalized["constraints"] = sorted(
+        constraints,
+        key=lambda item: (
+            item.get("relation", ""),
+            item.get("rhs", 0),
+            tuple(
+                (term.get("variable", ""), term.get("coefficient", 0))
+                for term in item.get("terms", [])
+            ),
+        ),
+    )
+    return normalized
+
+
 def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """根据案例期望对分析结果及可选建模结果逐项评分。"""
 
@@ -151,9 +207,14 @@ def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, An
 
     expected_model = case.get("expected_model")
     if expected_model is not None:
-        actual_model = analysis.get("scheduling_draft")
-        normalized_expected = _normalize_scheduling_draft(expected_model)
-        normalized_actual = _normalize_scheduling_draft(actual_model)
+        if case.get("family") == "linear_programming":
+            actual_model = analysis.get("linear_program_draft")
+            normalized_expected = _normalize_linear_program_draft(expected_model)
+            normalized_actual = _normalize_linear_program_draft(actual_model)
+        else:
+            actual_model = analysis.get("scheduling_draft")
+            normalized_expected = _normalize_scheduling_draft(expected_model)
+            normalized_actual = _normalize_scheduling_draft(actual_model)
         record(
             "structured_model",
             normalized_actual == normalized_expected,
@@ -197,6 +258,36 @@ def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, An
                 sorted(implemented_method_ids),
             )
 
+        expected_variable_values = case.get("expected_variable_values")
+        if expected_variable_values is not None:
+            actual_variable_values = solver_result.get("variable_values") or {}
+            values_match = set(actual_variable_values) == set(expected_variable_values)
+            if values_match:
+                values_match = all(
+                    isinstance(actual_variable_values[name], (int, float))
+                    and abs(actual_variable_values[name] - expected_value) <= 1e-6
+                    for name, expected_value in expected_variable_values.items()
+                )
+            record(
+                "variable_values",
+                values_match,
+                expected_variable_values,
+                actual_variable_values,
+            )
+
+        expected_objective_value = case.get("expected_objective_value")
+        if expected_objective_value is not None:
+            actual_objective_value = solver_result.get("objective_value")
+            objective_matches = (
+                isinstance(actual_objective_value, (int, float))
+                and abs(actual_objective_value - expected_objective_value) <= 1e-6
+            )
+            record(
+                "objective_value",
+                objective_matches,
+                expected_objective_value,
+                actual_objective_value,
+            )
         expected_validation = case.get("expected_validation")
         validation_report = (modeling_run or {}).get("validation_report")
         if expected_validation == "valid":
@@ -285,7 +376,7 @@ def _build_report(
 
     return {
         "mode": "live",
-        "scope": "排班 MVP 与当前能力边界，不代表通用数学建模能力",
+        "scope": "员工排班与连续单目标线性规划；不代表通用数学建模能力",
         "api_calls": count,
         "case_count": count,
         "passed_count": passed_count,
@@ -310,7 +401,7 @@ def main(
 ) -> int:
     """默认只校验案例集；只有显式传入 --live 才调用 DeepSeek。"""
 
-    parser = argparse.ArgumentParser(description="排班 MVP 分层 Evals")
+    parser = argparse.ArgumentParser(description="运筹优化数学建模 Agent 分层 Evals")
     parser.add_argument(
         "--live",
         action="store_true",
@@ -340,7 +431,7 @@ def main(
             json.dumps(
                 {
                     "mode": "offline_validation",
-                    "scope": "排班 MVP 与当前能力边界，不代表通用数学建模能力",
+                    "scope": "员工排班与连续单目标线性规划；不代表通用数学建模能力",
                     "case_count": len(cases),
                     "api_calls": 0,
                     "message": "案例文件有效；未调用 DeepSeek。传入 --live 才执行在线评测。",
@@ -361,8 +452,14 @@ def main(
                 "modeling_run": None,
             }
             if analysis.status == "ready":
-                problem = to_scheduling_problem(analysis)
-                modeling_run: ModelingRun = run_modeling(problem)
+                if analysis.problem_family == "employee_scheduling":
+                    problem = to_scheduling_problem(analysis)
+                    modeling_run: ModelingRun | LinearModelingRun = run_modeling(problem)
+                elif analysis.problem_family == "linear_programming":
+                    problem = to_linear_program_problem(analysis)
+                    modeling_run = run_linear_modeling(problem)
+                else:
+                    raise ValueError("ready 分析没有对应的领域适配器")
                 payload["modeling_run"] = asdict(modeling_run)
             results.append(evaluate_case(case, payload))
         except Exception as exc:

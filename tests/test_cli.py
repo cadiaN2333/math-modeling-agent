@@ -1,6 +1,17 @@
 import json
 
 
+def empty_linear_program_draft():
+    from math_modeling_agent.analysis_agent import LinearProgramDraft
+
+    return LinearProgramDraft(
+        variables=[],
+        objective_direction="not_applicable",
+        objective_terms=[],
+        constraints=[],
+    )
+
+
 def test_cli_sample_outputs_valid_schedule(capsys) -> None:
     # 延迟导入，让测试在命令行模块尚未实现时仍能被收集
     from math_modeling_agent.cli import main
@@ -73,6 +84,7 @@ def test_cli_request_returns_clarifying_questions(capsys) -> None:
 
     analysis = ProblemAnalysis(
         status="needs_clarification",
+        problem_family="employee_scheduling",
         summary="用户希望排班。",
         known_facts=["需要安排员工"],
         missing_information=["员工人数"],
@@ -82,6 +94,7 @@ def test_cli_request_returns_clarifying_questions(capsys) -> None:
         scheduling_draft=SchedulingDraft(
             employees=[], shifts=[], coverage_requirements=[]
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
 
     class FakeResponses:
@@ -117,6 +130,7 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
 
     analysis = ProblemAnalysis(
         status="ready",
+        problem_family="employee_scheduling",
         summary="为急救员和普通员工安排两个班次。",
         known_facts=["两个班次各8小时"],
         missing_information=[],
@@ -167,6 +181,7 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
                 ),
             ],
         ),
+        linear_program_draft=empty_linear_program_draft(),
     )
 
     class FakeResponses:
@@ -186,4 +201,108 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
         "OPTIMAL",
         "FEASIBLE",
     }
+    assert result["modeling_run"]["validation_report"]["is_valid"] is True
+
+
+def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
+    import pytest
+    from types import SimpleNamespace
+
+    from math_modeling_agent.analysis_agent import (
+        AnalysisSubtask,
+        LinearConstraintDraft,
+        LinearProgramDraft,
+        LinearTermDraft,
+        LinearVariableDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+    )
+    from math_modeling_agent.cli import main
+
+    analysis = ProblemAnalysis(
+        status="ready",
+        problem_family="linear_programming",
+        summary="最大化两种产品的利润。",
+        known_facts=["利润与资源限制已知"],
+        missing_information=[],
+        clarifying_questions=[],
+        unsupported_reasons=[],
+        subtasks=[
+            AnalysisSubtask(
+                task_id="T1",
+                description="建立生产计划线性规划。",
+                objective="最大化利润。",
+                data_needed=[],
+                depends_on=[],
+                hmml_problem_query="连续变量的生产计划线性规划",
+                hmml_goal_query="最大化利润并满足资源约束",
+            )
+        ],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[
+                LinearVariableDraft(name="A", unit="件"),
+                LinearVariableDraft(name="B", unit="件"),
+            ],
+            objective_direction="maximize",
+            objective_terms=[
+                LinearTermDraft(variable="A", coefficient=40),
+                LinearTermDraft(variable="B", coefficient=30),
+            ],
+            constraints=[
+                LinearConstraintDraft(
+                    constraint_id="labor",
+                    terms=[
+                        LinearTermDraft(variable="A", coefficient=2),
+                        LinearTermDraft(variable="B", coefficient=1),
+                    ],
+                    relation="<=",
+                    rhs=100,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="material",
+                    terms=[
+                        LinearTermDraft(variable="A", coefficient=1),
+                        LinearTermDraft(variable="B", coefficient=1),
+                    ],
+                    relation="<=",
+                    rhs=80,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="A_nonnegative",
+                    terms=[LinearTermDraft(variable="A", coefficient=1)],
+                    relation=">=",
+                    rhs=0,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="B_nonnegative",
+                    terms=[LinearTermDraft(variable="B", coefficient=1)],
+                    relation=">=",
+                    rhs=0,
+                ),
+            ],
+        ),
+    )
+
+    class FakeResponses:
+        def parse(self, **arguments):
+            return SimpleNamespace(output_parsed=analysis)
+
+    exit_code = main(
+        ["--request", "生产A、B两种产品，求利润最大化。"],
+        llm_client=SimpleNamespace(responses=FakeResponses()),
+    )
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert result["analysis"]["problem_family"] == "linear_programming"
+    assert result["modeling_run"]["solver_result"]["status"] == "OPTIMAL"
+    assert result["modeling_run"]["solver_result"]["variable_values"] == pytest.approx(
+        {"A": 20.0, "B": 60.0}
+    )
+    assert result["modeling_run"]["solver_result"]["objective_value"] == pytest.approx(
+        2600.0
+    )
     assert result["modeling_run"]["validation_report"]["is_valid"] is True

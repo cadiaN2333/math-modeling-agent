@@ -1,3 +1,6 @@
+from math import isfinite
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -59,5 +62,97 @@ class SchedulingProblem(BaseModel):
 
         if set(requirement_ids) != known_shift_ids:
             raise ValueError("每个班次都必须有一条覆盖要求")
+
+        return self
+
+
+class LinearVariable(BaseModel):
+    """LP 决策变量的名称和单位。变量界限用显式线性约束表示。"""
+
+    name: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+
+
+class LinearTerm(BaseModel):
+    """线性表达式中的一个系数—变量项。"""
+
+    variable: str = Field(min_length=1)
+    coefficient: float
+
+    @field_validator("coefficient")
+    @classmethod
+    def coefficient_must_be_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("线性系数必须是有限数值")
+        return value
+
+
+class LinearObjective(BaseModel):
+    """连续 LP 的单一线性目标函数。"""
+
+    direction: Literal["maximize", "minimize"]
+    terms: list[LinearTerm] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def objective_variables_must_be_unique(self) -> "LinearObjective":
+        variable_names = [term.variable for term in self.terms]
+        if len(variable_names) != len(set(variable_names)):
+            raise ValueError("同一目标表达式中变量不能重复")
+        return self
+
+
+class LinearConstraint(BaseModel):
+    """连续 LP 的一条线性约束。"""
+
+    name: str = Field(min_length=1)
+    terms: list[LinearTerm] = Field(min_length=1)
+    relation: Literal["<=", ">=", "=="]
+    rhs: float
+
+    @field_validator("rhs")
+    @classmethod
+    def right_hand_side_must_be_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("约束右侧必须是有限数值")
+        return value
+
+    @model_validator(mode="after")
+    def constraint_variables_must_be_unique(self) -> "LinearConstraint":
+        variable_names = [term.variable for term in self.terms]
+        if len(variable_names) != len(set(variable_names)):
+            raise ValueError("同一约束表达式中变量不能重复")
+        return self
+
+
+class LinearProgramProblem(BaseModel):
+    """连续、单目标线性规划的求解输入。"""
+
+    variables: list[LinearVariable] = Field(min_length=1)
+    objective: LinearObjective
+    constraints: list[LinearConstraint]
+
+    @model_validator(mode="after")
+    def validate_variable_references(self) -> "LinearProgramProblem":
+        variable_names = [variable.name for variable in self.variables]
+        if len(variable_names) != len(set(variable_names)):
+            raise ValueError("LP 变量名不能重复")
+
+        constraint_names = [constraint.name for constraint in self.constraints]
+        if len(constraint_names) != len(set(constraint_names)):
+            raise ValueError("LP 约束名称不能重复")
+
+        known_variables = set(variable_names)
+        referenced_variables = {
+            term.variable
+            for term in self.objective.terms
+        }
+        referenced_variables.update(
+            term.variable
+            for constraint in self.constraints
+            for term in constraint.terms
+        )
+        unknown_variables = referenced_variables - known_variables
+        if unknown_variables:
+            raise ValueError(f"LP 表达式引用了未声明的变量：{sorted(unknown_variables)}")
 
         return self

@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "scope": "排班 MVP；线性规划与运输/网络流目前只测试能力边界",
+  "scope": "员工排班与连续单目标线性规划；运输/网络流仍测试能力边界",
   "cases": [
     {
       "id": "clarify_missing_employee_max_hours",
       "family": "scheduling",
-      "request": "安排两个各8小时的班次，每班至少一人。林晓有急救技能，并且要上第一班。",
+      "request": "我需要安排两个各8小时班次，每班至少一人；林晓有急救技能，且必须安排在第一班。现阶段还没有整理出其他员工名单和每个人的最大总工时，请告诉我还需要补充哪些信息，暂时不要假设员工或直接求解。",
       "expected_analysis_status": "needs_clarification",
       "required_text_groups": [
         {
@@ -84,16 +84,86 @@
       ]
     },
     {
-      "id": "unsupported_linear_programming_production_plan",
+      "id": "linear_programming_production_plan",
       "family": "linear_programming",
-      "request": "工厂生产A、B两种产品，单位利润分别为40元和30元，消耗工时分别为2小时和1小时；每天最多有100小时工时和80单位原料，求利润最大的产量组合。",
-      "expected_analysis_status": "unsupported",
-      "required_text_groups": [
-        {
-          "fields": ["unsupported_reasons"],
-          "any_of": ["线性规划", "生产计划", "非员工排班", "只支持员工排班"]
-        }
-      ]
+      "request": "工厂生产A、B两种产品，产量变量均为连续变量并以件计，且不得为负；单位利润分别为40元和30元，单位产品消耗工时分别为2小时和1小时，每件A和B均消耗1单位原料。每天最多有100小时工时和80单位原料，求利润最大的产量组合。",
+      "expected_analysis_status": "ready",
+      "expected_model": {
+        "variables": [
+          {"name": "A", "unit": "件"},
+          {"name": "B", "unit": "件"}
+        ],
+        "objective_direction": "maximize",
+        "objective_terms": [
+          {"variable": "A", "coefficient": 40.0},
+          {"variable": "B", "coefficient": 30.0}
+        ],
+        "constraints": [
+          {
+            "constraint_id": "labor",
+            "terms": [
+              {"variable": "A", "coefficient": 2.0},
+              {"variable": "B", "coefficient": 1.0}
+            ],
+            "relation": "<=",
+            "rhs": 100.0
+          },
+          {
+            "constraint_id": "material",
+            "terms": [
+              {"variable": "A", "coefficient": 1.0},
+              {"variable": "B", "coefficient": 1.0}
+            ],
+            "relation": "<=",
+            "rhs": 80.0
+          },
+          {
+            "constraint_id": "A_nonnegative",
+            "terms": [{"variable": "A", "coefficient": 1.0}],
+            "relation": ">=",
+            "rhs": 0.0
+          },
+          {
+            "constraint_id": "B_nonnegative",
+            "terms": [{"variable": "B", "coefficient": 1.0}],
+            "relation": ">=",
+            "rhs": 0.0
+          }
+        ]
+      },
+      "expected_solver_statuses": ["OPTIMAL"],
+      "expected_method_id": "continuous_linear_programming",
+      "expected_validation": "valid",
+      "expected_variable_values": {"A": 20.0, "B": 60.0},
+      "expected_objective_value": 2600.0
+    },
+    {
+      "id": "linear_programming_infeasible_constraints",
+      "family": "linear_programming",
+      "request": "令连续变量x表示以件计的产量，目标是最小化x；同时要求x至少为10且至多为5，判断是否存在可行方案。",
+      "expected_analysis_status": "ready",
+      "expected_model": {
+        "variables": [{"name": "x", "unit": "件"}],
+        "objective_direction": "minimize",
+        "objective_terms": [{"variable": "x", "coefficient": 1.0}],
+        "constraints": [
+          {
+            "constraint_id": "minimum",
+            "terms": [{"variable": "x", "coefficient": 1.0}],
+            "relation": ">=",
+            "rhs": 10.0
+          },
+          {
+            "constraint_id": "maximum",
+            "terms": [{"variable": "x", "coefficient": 1.0}],
+            "relation": "<=",
+            "rhs": 5.0
+          }
+        ]
+      },
+      "expected_solver_statuses": ["INFEASIBLE"],
+      "expected_method_id": "continuous_linear_programming",
+      "expected_validation": "not_run"
     },
     {
       "id": "unsupported_transportation_network_flow",
