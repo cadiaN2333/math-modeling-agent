@@ -1,0 +1,350 @@
+import json
+
+
+def test_eval_case_fails_when_analysis_status_is_wrong() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    case = {
+        "id": "lp_not_supported",
+        "family": "linear_programming",
+        "expected_analysis_status": "unsupported",
+    }
+    payload = {
+        "analysis": {"status": "ready"},
+        "modeling_run": None,
+    }
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is False
+    assert result["checks"][0]["name"] == "analysis_status"
+    assert result["checks"][0]["passed"] is False
+
+
+def test_eval_case_checks_unsupported_boundary_keywords() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    case = {
+        "id": "lp_not_supported",
+        "family": "linear_programming",
+        "expected_analysis_status": "unsupported",
+        "required_text_groups": [
+            {
+                "fields": ["known_facts"],
+                "any_of": ["线性规划", "生产计划"],
+            },
+            {
+                "fields": ["unsupported_reasons"],
+                "any_of": ["只支持员工排班", "排班系统"],
+            },
+        ],
+    }
+    payload = {
+        "analysis": {
+            "status": "unsupported",
+            "summary": "当前系统只支持员工排班。",
+            "known_facts": ["用户提出生产计划线性规划问题。"],
+            "missing_information": [],
+            "clarifying_questions": [],
+            "unsupported_reasons": ["当前系统只支持员工排班，线性规划尚未实现。"],
+        },
+        "modeling_run": None,
+    }
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is True
+    assert all(check["passed"] for check in result["checks"])
+
+
+def test_eval_case_does_not_accept_user_facts_as_unsupported_reason() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    case = {
+        "id": "lp_not_supported",
+        "family": "linear_programming",
+        "expected_analysis_status": "unsupported",
+        "required_text_groups": [
+            {
+                "fields": ["unsupported_reasons"],
+                "any_of": ["只支持员工排班", "尚未支持线性规划"],
+            }
+        ],
+    }
+    payload = {
+        "analysis": {
+            "status": "unsupported",
+            "summary": "生产计划问题。",
+            "known_facts": ["用户提出线性规划生产计划。"],
+            "missing_information": [],
+            "clarifying_questions": [],
+            "unsupported_reasons": ["需求信息已整理。"],
+        },
+        "modeling_run": None,
+    }
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is False
+
+
+def test_eval_case_requires_valid_solver_and_method_for_ready_schedule() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    model = {
+        "employees": [
+            {
+                "employee_id": "E1",
+                "name": "林晓",
+                "skills": ["急救"],
+                "max_hours": 8.0,
+            }
+        ],
+        "shifts": [{"shift_id": "S1", "duration_hours": 8.0}],
+        "coverage_requirements": [
+            {
+                "shift_id": "S1",
+                "minimum_employees": 1,
+                "skill_requirements": [
+                    {"skill": "急救", "minimum_count": 1}
+                ],
+            }
+        ],
+    }
+    case = {
+        "id": "ready_schedule",
+        "family": "scheduling",
+        "expected_analysis_status": "ready",
+        "expected_model": model,
+        "expected_solver_statuses": ["OPTIMAL", "FEASIBLE"],
+        "expected_method_id": "cp_sat_scheduling",
+        "expected_validation": "valid",
+    }
+    payload = {
+        "analysis": {"status": "ready", "scheduling_draft": model},
+        "modeling_run": {
+            "solver_result": {"status": "OPTIMAL"},
+            "validation_report": {"is_valid": True, "errors": []},
+            "method_recommendations": [
+                {
+                    "method_id": "cp_sat_scheduling",
+                    "implementation_status": "已实现",
+                }
+            ],
+        },
+    }
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is True
+    assert {check["name"] for check in result["checks"]} == {
+        "analysis_status",
+        "structured_model",
+        "solver_status",
+        "implemented_method",
+        "validator",
+    }
+
+
+def test_eval_case_compares_structured_model_without_list_order_sensitivity() -> None:
+    from math_modeling_agent.evals import evaluate_case
+
+    expected_model = {
+        "employees": [
+            {"employee_id": "E1", "name": "林晓", "skills": ["急救"], "max_hours": 8.0},
+            {"employee_id": "E2", "name": "陈立", "skills": [], "max_hours": 8.0},
+        ],
+        "shifts": [
+            {"shift_id": "S1", "duration_hours": 8.0},
+            {"shift_id": "S2", "duration_hours": 8.0},
+        ],
+        "coverage_requirements": [
+            {
+                "shift_id": "S1",
+                "minimum_employees": 1,
+                "skill_requirements": [{"skill": "急救", "minimum_count": 1}],
+            },
+            {"shift_id": "S2", "minimum_employees": 1, "skill_requirements": []},
+        ],
+    }
+    actual_model = {
+        "employees": list(reversed(expected_model["employees"])),
+        "shifts": list(reversed(expected_model["shifts"])),
+        "coverage_requirements": list(reversed(expected_model["coverage_requirements"])),
+    }
+    result = evaluate_case(
+        {"id": "order_independent", "family": "scheduling", "expected_analysis_status": "ready", "expected_model": expected_model},
+        {
+            "analysis": {"status": "ready", "scheduling_draft": actual_model},
+            "modeling_run": None,
+        },
+    )
+
+    model_check = next(check for check in result["checks"] if check["name"] == "structured_model")
+    assert model_check["passed"] is True
+
+
+def test_eval_dataset_has_eight_unique_valid_domain_cases() -> None:
+    from math_modeling_agent.evals import load_eval_cases
+
+    cases = load_eval_cases()
+    case_ids = [case["id"] for case in cases]
+
+    assert len(cases) == 8
+    assert len(case_ids) == len(set(case_ids))
+    assert {case["family"] for case in cases} == {
+        "scheduling",
+        "linear_programming",
+        "transportation",
+    }
+    assert all(
+        case["expected_analysis_status"] == "unsupported"
+        for case in cases
+        if case["family"] != "scheduling"
+    )
+    assert all(case["request"].strip() for case in cases)
+    assert all(case["expected_analysis_status"] in {
+        "ready",
+        "needs_clarification",
+        "unsupported",
+    } for case in cases)
+    assert all(
+        "expected_solver_statuses" in case
+        for case in cases
+        if case["expected_analysis_status"] == "ready"
+    )
+
+
+def test_evals_cli_defaults_to_offline_without_calling_analyzer(capsys) -> None:
+    from math_modeling_agent.evals import main
+
+    def fail_if_called(_request: str):
+        raise AssertionError("默认模式不得调用模型分析器")
+
+    exit_code = main([], analyzer=fail_if_called)
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert report["mode"] == "offline_validation"
+    assert report["case_count"] == 8
+    assert report["api_calls"] == 0
+
+
+def test_live_eval_uses_injected_analyzer_for_unsupported_case(capsys) -> None:
+    from math_modeling_agent.analysis_agent import ProblemAnalysis, SchedulingDraft
+    from math_modeling_agent.evals import load_eval_cases, main
+
+    case = next(
+        item
+        for item in load_eval_cases()
+        if item["id"] == "unsupported_linear_programming_production_plan"
+    )
+    analysis = ProblemAnalysis(
+        status="unsupported",
+        summary="这是生产计划线性规划问题。当前系统只支持员工排班。",
+        known_facts=["用户希望决定生产计划。"],
+        missing_information=[],
+        clarifying_questions=[],
+        unsupported_reasons=["生产计划线性规划尚未支持，当前系统只支持员工排班。"],
+        subtasks=[],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+    )
+    received_requests = []
+
+    def fake_analyzer(request: str):
+        received_requests.append(request)
+        return analysis
+
+    exit_code = main(
+        ["--live", "--case-id", case["id"]],
+        analyzer=fake_analyzer,
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert received_requests == [case["request"]]
+    assert report["api_calls"] == 1
+    assert report["passed_count"] == 1
+    assert report["results"][0]["passed"] is True
+
+
+def test_live_eval_runs_local_solver_and_reports_ready_metrics(monkeypatch, capsys) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from math_modeling_agent import evals
+
+    case = next(
+        item
+        for item in evals.load_eval_cases()
+        if item["id"] == "schedule_three_staff_feasible"
+    )
+    analysis_data = {
+        "status": "ready",
+        "scheduling_draft": case["expected_model"],
+    }
+    analysis = SimpleNamespace(
+        status="ready",
+        model_dump=lambda mode: analysis_data,
+    )
+    calls = []
+    modeling_run = {
+        "solver_result": {
+            "status": "OPTIMAL",
+            "assignments": [
+                {"employee_id": "E1", "shift_id": "S1"},
+                {"employee_id": "E3", "shift_id": "S2"},
+            ],
+        },
+        "validation_report": {"is_valid": True, "errors": []},
+        "method_recommendations": [
+            {
+                "method_id": "cp_sat_scheduling",
+                "implementation_status": "已实现",
+            }
+        ],
+    }
+    monkeypatch.setattr(evals, "to_scheduling_problem", lambda item: "test-problem")
+    monkeypatch.setattr(
+        evals,
+        "run_modeling",
+        lambda problem: calls.append(problem) or object(),
+    )
+    monkeypatch.setattr(evals, "asdict", lambda result: modeling_run)
+
+    exit_code = evals.main(
+        ["--live", "--case-id", case["id"]],
+        analyzer=lambda request: analysis,
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert calls == ["test-problem"]
+    assert report["results"][0]["passed"] is True
+    assert report["analysis_status_accuracy"] == 1.0
+    assert report["solver_status_accuracy"] == 1.0
+    assert report["implemented_method_hit_rate"] == 1.0
+    assert report["validator_pass_rate"] == 1.0
+
+
+def test_live_eval_does_not_print_exception_text(capsys) -> None:
+    import json
+
+    from math_modeling_agent.evals import main
+
+    def fail_with_sensitive_text(_request: str):
+        raise RuntimeError("test-secret-must-not-be-printed")
+
+    exit_code = main(
+        ["--live", "--case-id", "clarify_missing_employee_max_hours"],
+        analyzer=fail_with_sensitive_text,
+    )
+    output = capsys.readouterr().out
+    report = json.loads(output)
+
+    assert exit_code == 1
+    assert "test-secret-must-not-be-printed" not in output
+    assert report["error_count"] == 1
+    assert report["results"][0]["error_type"] == "RuntimeError"

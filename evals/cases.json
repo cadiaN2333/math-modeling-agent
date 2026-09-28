@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "scope": "排班 MVP；线性规划与运输/网络流目前只测试能力边界",
+  "cases": [
+    {
+      "id": "clarify_missing_employee_max_hours",
+      "family": "scheduling",
+      "request": "安排两个各8小时的班次，每班至少一人。林晓有急救技能，并且要上第一班。",
+      "expected_analysis_status": "needs_clarification",
+      "required_text_groups": [
+        {
+          "fields": ["missing_information", "clarifying_questions"],
+          "any_of": ["最大总工时", "最大工时", "工时上限", "最多工作"]
+        }
+      ]
+    },
+    {
+      "id": "schedule_three_staff_feasible",
+      "family": "scheduling",
+      "request": "本次排班只有两个班次。员工有E1林晓、E2陈立、E3周宁，三人最大工时都是8小时；只有林晓有急救技能。两个班次各8小时，每班至少一人；第一班至少需要一名急救员，第二班无额外技能要求。不考虑班次重叠和员工不可用时间。",
+      "expected_analysis_status": "ready",
+      "expected_model": {
+        "employees": [
+          {"employee_id": "E1", "name": "林晓", "skills": ["急救"], "max_hours": 8.0},
+          {"employee_id": "E2", "name": "陈立", "skills": [], "max_hours": 8.0},
+          {"employee_id": "E3", "name": "周宁", "skills": [], "max_hours": 8.0}
+        ],
+        "shifts": [
+          {"shift_id": "S1", "duration_hours": 8.0},
+          {"shift_id": "S2", "duration_hours": 8.0}
+        ],
+        "coverage_requirements": [
+          {
+            "shift_id": "S1",
+            "minimum_employees": 1,
+            "skill_requirements": [{"skill": "急救", "minimum_count": 1}]
+          },
+          {"shift_id": "S2", "minimum_employees": 1, "skill_requirements": []}
+        ]
+      },
+      "expected_solver_statuses": ["OPTIMAL", "FEASIBLE"],
+      "expected_method_id": "cp_sat_scheduling",
+      "expected_validation": "valid",
+      "required_assignment_pairs": [["E1", "S1"]]
+    },
+    {
+      "id": "schedule_infeasible_missing_first_aid_skill",
+      "family": "scheduling",
+      "request": "两名员工E1陈立和E2周宁都没有急救技能，最大工时各8小时。安排两个各8小时班次，每班至少一人；第一班至少需要一名急救员，第二班没有技能要求。",
+      "expected_analysis_status": "ready",
+      "expected_solver_statuses": ["INFEASIBLE"],
+      "expected_method_id": "cp_sat_scheduling",
+      "expected_validation": "not_run"
+    },
+    {
+      "id": "schedule_infeasible_hours_below_shift_duration",
+      "family": "scheduling",
+      "request": "员工E1林晓有急救技能、最多工作7小时；员工E2陈立没有急救技能、最多工作7小时。安排两个各8小时班次，每班至少一人；第一班需要一名急救员，第二班没有额外技能要求。",
+      "expected_analysis_status": "ready",
+      "expected_solver_statuses": ["INFEASIBLE"],
+      "expected_method_id": "cp_sat_scheduling",
+      "expected_validation": "not_run"
+    },
+    {
+      "id": "unsupported_shift_time_overlap",
+      "family": "scheduling",
+      "request": "安排E1林晓和E2陈立，二人最多工作8小时。S1是08:00到16:00，S2是14:00到22:00，每班至少一人，并保证同一员工不能被安排到时间重叠的班次。",
+      "expected_analysis_status": "unsupported",
+      "required_text_groups": [
+        {
+          "fields": ["unsupported_reasons"],
+          "any_of": ["班次起止时间", "班次时间", "时间重叠", "重叠约束"]
+        }
+      ]
+    },
+    {
+      "id": "unsupported_wage_and_fairness_objectives",
+      "family": "scheduling",
+      "request": "给E1林晓和E2陈立安排一个8小时班次，二人最多工作8小时；要求满足覆盖的同时最小化工资成本，并让两个人的排班时长尽量公平。",
+      "expected_analysis_status": "unsupported",
+      "required_text_groups": [
+        {"fields": ["unsupported_reasons"], "any_of": ["工资", "薪资", "成本"]},
+        {"fields": ["unsupported_reasons"], "any_of": ["公平", "均衡"]}
+      ]
+    },
+    {
+      "id": "unsupported_linear_programming_production_plan",
+      "family": "linear_programming",
+      "request": "工厂生产A、B两种产品，单位利润分别为40元和30元，消耗工时分别为2小时和1小时；每天最多有100小时工时和80单位原料，求利润最大的产量组合。",
+      "expected_analysis_status": "unsupported",
+      "required_text_groups": [
+        {
+          "fields": ["unsupported_reasons"],
+          "any_of": ["线性规划", "生产计划", "非员工排班", "只支持员工排班"]
+        }
+      ]
+    },
+    {
+      "id": "unsupported_transportation_network_flow",
+      "family": "transportation",
+      "request": "有两个仓库和三个门店，仓库有供货上限、门店有需求量，每条配送路线有单位运输成本；求满足需求且总运费最低的运输方案。",
+      "expected_analysis_status": "unsupported",
+      "required_text_groups": [
+        {
+          "fields": ["unsupported_reasons"],
+          "any_of": ["运输", "网络流", "非员工排班", "只支持员工排班"]
+        }
+      ]
+    }
+  ]
+}

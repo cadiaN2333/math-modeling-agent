@@ -10,6 +10,14 @@ def test_problem_analysis_schema_avoids_anyof_for_deepseek() -> None:
     assert "anyOf" not in json.dumps(schema)
 
 
+def test_analysis_instructions_limit_current_domain_to_scheduling() -> None:
+    from math_modeling_agent.analysis_agent import ANALYSIS_INSTRUCTIONS
+
+    assert "只支持员工排班" in ANALYSIS_INSTRUCTIONS
+    assert "运输/网络流" in ANALYSIS_INSTRUCTIONS
+    assert "unsupported" in ANALYSIS_INSTRUCTIONS
+
+
 class FakeResponses:
     def __init__(self, parsed_result) -> None:
         self.parsed_result = parsed_result
