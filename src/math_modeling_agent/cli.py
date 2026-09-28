@@ -9,11 +9,13 @@ from pathlib import Path
 from .analysis_agent import (
     analyze_problem,
     to_linear_program_problem,
+    to_minimum_cost_flow_problem,
     retrieve_methods_for_subtasks,
     to_scheduling_problem,
 )
 from .agent import run_modeling
 from .linear_agent import run_linear_modeling
+from .min_cost_flow_agent import run_min_cost_flow_modeling
 from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
 
@@ -65,6 +67,9 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
                 elif analysis.problem_family == "linear_programming":
                     problem = to_linear_program_problem(analysis)
                     modeling_run = run_linear_modeling(problem)
+                elif analysis.problem_family == "minimum_cost_flow":
+                    problem = to_minimum_cost_flow_problem(analysis)
+                    modeling_run = run_min_cost_flow_modeling(problem)
                 else:
                     raise ValueError("当前问题领域没有已实现的求解适配器")
             except ValueError as exc:

@@ -320,3 +320,74 @@ def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
         2600.0
     )
     assert result["modeling_run"]["validation_report"]["is_valid"] is True
+
+
+def test_cli_ready_min_cost_flow_request_uses_network_flow_adapter(capsys) -> None:
+    from types import SimpleNamespace
+
+    from math_modeling_agent.cli import main
+    from min_cost_flow_fixtures import make_ready_analysis
+
+    analysis = make_ready_analysis()
+
+    class FakeResponses:
+        def parse(self, **arguments):
+            return SimpleNamespace(output_parsed=analysis)
+
+    exit_code = main(
+        ["--request", "以最低费用将两仓货物送至两家门店。"],
+        llm_client=SimpleNamespace(responses=FakeResponses()),
+    )
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert result["analysis"]["problem_family"] == "minimum_cost_flow"
+    assert result["modeling_run"]["solver_result"]["status"] == "OPTIMAL"
+    assert result["modeling_run"]["solver_result"]["total_cost"] == 80
+    assert result["modeling_run"]["validation_report"]["is_valid"] is True
+
+
+def test_cli_does_not_solve_nonready_min_cost_flow_request(capsys, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    from math_modeling_agent.analysis_agent import ProblemAnalysis
+    from math_modeling_agent import cli
+    from min_cost_flow_fixtures import make_ready_analysis
+
+    for status in ("needs_clarification", "unsupported"):
+        analysis_data = make_ready_analysis().model_dump(mode="python")
+        analysis_data["status"] = status
+        analysis_data["subtasks"] = []
+        analysis_data["minimum_cost_flow_draft"] = {
+            "nodes": [],
+            "arcs": [],
+            "flow_unit": "not_applicable",
+            "cost_unit": "not_applicable",
+        }
+        if status == "needs_clarification":
+            analysis_data["missing_information"] = ["路线单位费用"]
+            analysis_data["clarifying_questions"] = ["请提供各条路线的单位费用。"]
+        else:
+            analysis_data["unsupported_reasons"] = ["当前版本不支持多商品流。"]
+        analysis = ProblemAnalysis.model_validate(analysis_data)
+
+        def fail_if_called(problem):
+            pytest.fail("非 ready 网络流问题不得启动求解器")
+
+        monkeypatch.setattr(cli, "run_min_cost_flow_modeling", fail_if_called)
+
+        class FakeResponses:
+            def parse(self, **arguments):
+                return SimpleNamespace(output_parsed=analysis)
+
+        exit_code = cli.main(
+            ["--request", "帮我做网络流运输分析"],
+            llm_client=SimpleNamespace(responses=FakeResponses()),
+        )
+        result = json.loads(capsys.readouterr().out)
+
+        assert exit_code == 0
+        assert result["analysis"]["status"] == status
+        assert "modeling_run" not in result

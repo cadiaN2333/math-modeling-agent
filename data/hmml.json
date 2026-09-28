@@ -108,6 +108,40 @@
               "solver": null
             }
           ]
+        },
+        {
+          "id": "network_flows",
+          "name": "网络流与运输优化",
+          "problem_keywords": ["网络流", "运输问题", "仓库配送", "供给需求", "路线容量", "单位运输费用"],
+          "goal_keywords": ["最小总费用", "满足全部需求", "最优运输方案", "流量守恒"],
+          "methods": [
+            {
+              "id": "minimum_cost_flow",
+              "name": "最小费用网络流",
+              "aliases": ["最小费用流", "运输问题", "Minimum Cost Flow"],
+              "problem_keywords": ["整数流量", "单商品流", "节点供需", "有向路线", "路线容量", "中转节点"],
+              "goal_keywords": ["满足全部供需", "最小化总运输费用", "最小费用可行流"],
+              "core_idea": "以带符号节点供需和带容量、单位费用的有向边表示运输网络，求满足全部供需的最低费用流量。",
+              "use_when": ["货物流量按整数单位计量", "节点供给和需求明确", "每条路线具有容量和单位费用", "必须完整满足全部需求"],
+              "assumptions": ["网络可表示为有向节点与路线", "供给总量等于需求总量", "路线流量和单位费用能表示成整数单位"],
+              "limitations": ["不支持多商品流或连续小数流量", "不支持仅最大化流量或允许部分满足需求", "车辆路径与时间窗需使用其他模型"],
+              "implementation_status": "已实现",
+              "solver": "OR-Tools SimpleMinCostFlow"
+            },
+            {
+              "id": "multi_commodity_flow",
+              "name": "多商品网络流",
+              "aliases": ["多品类运输流"],
+              "problem_keywords": ["多商品流", "多产品运输", "多品类货物"],
+              "goal_keywords": ["多种商品同时运输", "共享路线容量"],
+              "core_idea": "在同一网络中同时安排多种商品的流量，并处理每种商品的独立供需与共享容量。",
+              "use_when": ["多种商品共享运输路线或容量"],
+              "assumptions": ["各商品供需、路线可用性和共享资源关系明确"],
+              "limitations": ["当前版本尚未实现多商品流求解器"],
+              "implementation_status": "知识候选",
+              "solver": null
+            }
+          ]
         }
       ]
     },

@@ -299,7 +299,7 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 **文件：** 新建 `src/math_modeling_agent/min_cost_flow_agent.py`、修改 `data/hmml.json`、`src/math_modeling_agent/cli.py`、`tests/test_min_cost_flow_agent.py`、`tests/test_cli.py`
 
-- [ ] **步骤 1：先写 Agent 与 CLI 测试。** Agent 测试断言生产计划最小费用流为 OPTIMAL 且 validator 有效；CLI 注入 ready 分析时按 `problem_family="minimum_cost_flow"` 进入新适配器，clarification/unsupported 不调用任何 solver。
+- [x] **步骤 1：先写 Agent 与 CLI 测试。** Agent 测试断言生产计划最小费用流为 OPTIMAL 且 validator 有效；CLI 注入 ready 分析时按 `problem_family="minimum_cost_flow"` 进入新适配器，clarification/unsupported 不调用任何 solver。
 
 ```python
 def test_min_cost_flow_agent_solves_and_validates_transport_plan() -> None:
@@ -318,7 +318,7 @@ def test_min_cost_flow_agent_solves_and_validates_transport_plan() -> None:
         for item in result.method_recommendations
     )
 ```
-- [ ] **步骤 2：运行新测试确认红灯。**
+- [x] **步骤 2：运行新测试确认红灯。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -328,11 +328,11 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：因 Agent 和 CLI 新路由尚不存在而失败。
 
-- [ ] **步骤 3：增加 HMML 方法卡。** 在 `operations_research` 的网络流子领域新增 `minimum_cost_flow` 方法，`implementation_status="已实现"`、`solver="OR-Tools SimpleMinCostFlow"`，关键词覆盖运输、供给、需求、路线容量、单位费用、最小总费用。
-- [ ] **步骤 4：实现 `run_min_cost_flow_modeling(problem)`。** 建立与其他 Agent 一致的 dataclass，先用 `HMMLRetriever` 推荐方法，再调用 solver；只有 `OPTIMAL` 才调用 validator。响应包含 `solver_result`、`validation_report`、`method_recommendations`。
-- [ ] **步骤 5：修改 CLI 分流。** 为 ready 分析增加 `minimum_cost_flow` 分支：调用 `to_minimum_cost_flow_problem()` 和 `run_min_cost_flow_modeling()`；现有排班和 LP 分支保持原样。
-- [ ] **步骤 6：运行 Agent/CLI/HMML 回归测试。** 重用步骤 2 命令；预期新领域与旧领域路由均通过。
-- [ ] **步骤 7：提交领域路由。** 使用中文提交说明 `接入最小费用流领域 Agent`。
+- [x] **步骤 3：增加 HMML 方法卡。** 在 `operations_research` 的网络流子领域新增 `minimum_cost_flow` 方法，`implementation_status="已实现"`、`solver="OR-Tools SimpleMinCostFlow"`，关键词覆盖运输、供给、需求、路线容量、单位费用、最小总费用。
+- [x] **步骤 4：实现 `run_min_cost_flow_modeling(problem)`。** 建立与其他 Agent 一致的 dataclass，先用 `HMMLRetriever` 推荐方法，再调用 solver；只有 `OPTIMAL` 才调用 validator。响应包含 `solver_result`、`validation_report`、`method_recommendations`。
+- [x] **步骤 5：修改 CLI 分流。** 为 ready 分析增加 `minimum_cost_flow` 分支：调用 `to_minimum_cost_flow_problem()` 和 `run_min_cost_flow_modeling()`；现有排班和 LP 分支保持原样。
+- [x] **步骤 6：运行 Agent/CLI/HMML 回归测试。** 重用步骤 2 命令；预期新领域与旧领域路由均通过。
+- [x] **步骤 7：提交领域路由。** 使用中文提交说明 `接入最小费用流领域 Agent`。
 
 ## 任务六：Evals 与数据集升级
 
