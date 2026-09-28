@@ -12,6 +12,17 @@ def empty_linear_program_draft():
     )
 
 
+def empty_min_cost_flow_draft():
+    from math_modeling_agent.analysis_agent import MinCostFlowDraft
+
+    return MinCostFlowDraft(
+        nodes=[],
+        arcs=[],
+        flow_unit="not_applicable",
+        cost_unit="not_applicable",
+    )
+
+
 def test_cli_sample_outputs_valid_schedule(capsys) -> None:
     # 延迟导入，让测试在命令行模块尚未实现时仍能被收集
     from math_modeling_agent.cli import main
@@ -95,6 +106,7 @@ def test_cli_request_returns_clarifying_questions(capsys) -> None:
             employees=[], shifts=[], coverage_requirements=[]
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     class FakeResponses:
@@ -182,6 +194,7 @@ def test_cli_ready_request_runs_local_solver(capsys) -> None:
             ],
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     class FakeResponses:
@@ -284,6 +297,7 @@ def test_cli_ready_linear_program_request_uses_glop(capsys) -> None:
                 ),
             ],
         ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     class FakeResponses:

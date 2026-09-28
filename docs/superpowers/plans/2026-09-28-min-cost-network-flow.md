@@ -263,7 +263,7 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 **文件：** `src/math_modeling_agent/analysis_agent.py`、`tests/test_analysis_agent.py`
 
-- [ ] **步骤 1：先写 Schema 与转换测试。** 断言 JSON Schema 仍不含 `anyOf`；`ProblemAnalysis` 有必填 `problem_family` 与固定 `minimum_cost_flow_draft`；ready 网络流可转换为 `MinCostFlowProblem`；inactive draft 为空；排班/LP ready 与网络流 draft 互斥。
+- [x] **步骤 1：先写 Schema 与转换测试。** 断言 JSON Schema 仍不含 `anyOf`；`ProblemAnalysis` 有必填 `problem_family` 与固定 `minimum_cost_flow_draft`；ready 网络流可转换为 `MinCostFlowProblem`；inactive draft 为空；排班/LP ready 与网络流 draft 互斥。
 
 ```python
 def test_network_flow_analysis_schema_is_fixed_and_converts() -> None:
@@ -280,7 +280,7 @@ def test_network_flow_analysis_schema_is_fixed_and_converts() -> None:
     assert len(problem.arcs) == 4
     assert problem.flow_unit == "箱"
 ```
-- [ ] **步骤 2：运行红灯测试。**
+- [x] **步骤 2：运行红灯测试。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -290,10 +290,10 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：新测试因缺少 `minimum_cost_flow` family 和 draft 类型而失败。
 
-- [ ] **步骤 3：实现固定草稿和转换。** 新增 `MinCostFlowNodeDraft(node_id, name, supply)`、`MinCostFlowArcDraft(arc_id, from_node, to_node, capacity, unit_cost)`、`MinCostFlowDraft(nodes, arcs, flow_unit, cost_unit)`。inactive draft 使用 `nodes=[]`、`arcs=[]`、两个单位字段 `not_applicable`。在 `ProblemAnalysis` 中加入 `minimum_cost_flow` family；ready 时只允许对应领域 draft 非空；非 ready 时所有领域 draft 为空。新增 `to_minimum_cost_flow_problem()` 并更新全部测试构造。
-- [ ] **步骤 4：更新 DeepSeek 分析提示词。** 只支持整数单商品最小费用流；明确正 supply、负 demand、0 中转节点；不推断节点、路线、容量或费用；费用小数必须精确换算为已说明的最小费用单位，不能精确换算时追问；max-flow、部分供需、多商品和车辆路径返回 unsupported。
-- [ ] **步骤 5：运行分析器测试确认通过。** 重用步骤 2 命令；预期 schema 无 `anyOf` 且既有排班/LP 用例不回归。
-- [ ] **步骤 6：提交分析 Schema。** 使用中文提交说明 `扩展最小费用流结构化分析`。
+- [x] **步骤 3：实现固定草稿和转换。** 新增 `MinCostFlowNodeDraft(node_id, name, supply)`、`MinCostFlowArcDraft(arc_id, from_node, to_node, capacity, unit_cost)`、`MinCostFlowDraft(nodes, arcs, flow_unit, cost_unit)`。inactive draft 使用 `nodes=[]`、`arcs=[]`、两个单位字段 `not_applicable`。在 `ProblemAnalysis` 中加入 `minimum_cost_flow` family；ready 时只允许对应领域 draft 非空；非 ready 时所有领域 draft 为空。新增 `to_minimum_cost_flow_problem()` 并更新全部测试构造。
+- [x] **步骤 4：更新 DeepSeek 分析提示词。** 只支持整数单商品最小费用流；明确正 supply、负 demand、0 中转节点；不推断节点、路线、容量或费用；费用小数必须精确换算为已说明的最小费用单位，不能精确换算时追问；max-flow、部分供需、多商品和车辆路径返回 unsupported。
+- [x] **步骤 5：运行分析器测试确认通过。** 重用步骤 2 命令；预期 schema 无 `anyOf` 且既有排班/LP 用例不回归。
+- [x] **步骤 6：提交分析 Schema。** 使用中文提交说明 `扩展最小费用流结构化分析`。
 
 ## 任务五：领域 Agent、HMML 与 CLI 路由
 

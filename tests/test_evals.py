@@ -1,6 +1,17 @@
 import json
 
 
+def empty_min_cost_flow_draft():
+    from math_modeling_agent.analysis_agent import MinCostFlowDraft
+
+    return MinCostFlowDraft(
+        nodes=[],
+        arcs=[],
+        flow_unit="not_applicable",
+        cost_unit="not_applicable",
+    )
+
+
 def test_eval_case_fails_when_analysis_status_is_wrong() -> None:
     from math_modeling_agent.evals import evaluate_case
 
@@ -402,6 +413,7 @@ def test_live_eval_uses_injected_analyzer_for_unsupported_case(capsys) -> None:
             objective_terms=[],
             constraints=[],
         ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
     received_requests = []
 

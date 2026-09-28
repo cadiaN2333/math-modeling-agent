@@ -2,6 +2,17 @@ from types import SimpleNamespace
 import json
 
 
+def empty_min_cost_flow_draft():
+    from math_modeling_agent.analysis_agent import MinCostFlowDraft
+
+    return MinCostFlowDraft(
+        nodes=[],
+        arcs=[],
+        flow_unit="not_applicable",
+        cost_unit="not_applicable",
+    )
+
+
 def test_problem_analysis_schema_avoids_anyof_for_deepseek() -> None:
     from math_modeling_agent.analysis_agent import ProblemAnalysis
 
@@ -14,11 +25,12 @@ def test_problem_analysis_schema_avoids_anyof_for_deepseek() -> None:
     assert "linear_program_draft" in schema["required"]
 
 
-def test_analysis_instructions_limit_current_domain_to_scheduling() -> None:
+def test_analysis_instructions_describe_all_supported_domains_and_boundaries() -> None:
     from math_modeling_agent.analysis_agent import ANALYSIS_INSTRUCTIONS
 
-    assert "员工排班和连续线性规划" in ANALYSIS_INSTRUCTIONS
-    assert "运输/网络流" in ANALYSIS_INSTRUCTIONS
+    assert "员工排班、连续单目标线性规划" in ANALYSIS_INSTRUCTIONS
+    assert "单商品最小费用网络流" in ANALYSIS_INSTRUCTIONS
+    assert "多商品流" in ANALYSIS_INSTRUCTIONS
     assert "unsupported" in ANALYSIS_INSTRUCTIONS
 
 
@@ -27,8 +39,84 @@ def test_analysis_instructions_limit_lp_to_continuous_single_objective() -> None
 
     assert "连续变量" in ANALYSIS_INSTRUCTIONS
     assert "单目标" in ANALYSIS_INSTRUCTIONS
-    assert "整数或二进制变量" in ANALYSIS_INSTRUCTIONS
+    assert "LP 整数/二进制变量" in ANALYSIS_INSTRUCTIONS
     assert "非线性" in ANALYSIS_INSTRUCTIONS
+
+
+def test_problem_analysis_schema_includes_fixed_min_cost_flow_draft() -> None:
+    from math_modeling_agent.analysis_agent import ProblemAnalysis
+
+    schema = ProblemAnalysis.model_json_schema()
+
+    assert "anyOf" not in json.dumps(schema)
+    assert "minimum_cost_flow_draft" in schema["properties"]
+    assert "minimum_cost_flow_draft" in schema["required"]
+    assert "minimum_cost_flow" in schema["properties"]["problem_family"]["enum"]
+
+
+def test_ready_min_cost_flow_analysis_converts_to_internal_problem() -> None:
+    from math_modeling_agent.analysis_agent import to_minimum_cost_flow_problem
+    from min_cost_flow_fixtures import make_ready_analysis
+
+    problem = to_minimum_cost_flow_problem(make_ready_analysis())
+
+    assert len(problem.nodes) == 4
+    assert [node.supply for node in problem.nodes] == [20, 30, -25, -25]
+    assert len(problem.arcs) == 4
+    assert problem.flow_unit == "箱"
+    assert problem.cost_unit == "元/箱"
+
+
+def test_nonready_min_cost_flow_analysis_requires_empty_domain_draft() -> None:
+    import pytest
+    from pydantic import ValidationError
+
+    from math_modeling_agent.analysis_agent import (
+        LinearProgramDraft,
+        MinCostFlowArcDraft,
+        MinCostFlowDraft,
+        MinCostFlowNodeDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+    )
+
+    with pytest.raises(ValidationError, match="需要追问或不支持的问题必须使用空领域草稿"):
+        ProblemAnalysis(
+            status="unsupported",
+            problem_family="minimum_cost_flow",
+            summary="这是多商品流问题。",
+            known_facts=[],
+            missing_information=[],
+            clarifying_questions=[],
+            unsupported_reasons=["当前不支持多商品流。"],
+            subtasks=[],
+            scheduling_draft=SchedulingDraft(
+                employees=[], shifts=[], coverage_requirements=[]
+            ),
+            linear_program_draft=LinearProgramDraft(
+                variables=[],
+                objective_direction="not_applicable",
+                objective_terms=[],
+                constraints=[],
+            ),
+            minimum_cost_flow_draft=MinCostFlowDraft(
+                nodes=[
+                    MinCostFlowNodeDraft(node_id="W1", name="仓库一", supply=10),
+                    MinCostFlowNodeDraft(node_id="S1", name="门店一", supply=-10),
+                ],
+                arcs=[
+                    MinCostFlowArcDraft(
+                        arc_id="A1",
+                        from_node="W1",
+                        to_node="S1",
+                        capacity=10,
+                        unit_cost=1,
+                    )
+                ],
+                flow_unit="箱",
+                cost_unit="元/箱",
+            ),
+        )
 
 
 def test_analysis_downgrades_vague_unsupported_to_clarification_when_data_is_missing() -> None:
@@ -59,6 +147,7 @@ def test_analysis_downgrades_vague_unsupported_to_clarification_when_data_is_mis
             objective_terms=[],
             constraints=[],
         ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
     client = SimpleNamespace(
         responses=SimpleNamespace(
@@ -101,6 +190,7 @@ def test_analysis_keeps_explicit_unsupported_feature_even_if_data_is_missing() -
             objective_terms=[],
             constraints=[],
         ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
     client = SimpleNamespace(
         responses=SimpleNamespace(
@@ -112,6 +202,42 @@ def test_analysis_keeps_explicit_unsupported_feature_even_if_data_is_missing() -
 
     assert result.status == "unsupported"
     assert result.unsupported_reasons == analysis.unsupported_reasons
+
+
+def test_analysis_does_not_treat_integer_schedule_counts_as_unsupported() -> None:
+    from types import SimpleNamespace
+
+    from math_modeling_agent.analysis_agent import (
+        ProblemAnalysis,
+        SchedulingDraft,
+        analyze_problem,
+    )
+
+    analysis = ProblemAnalysis(
+        status="unsupported",
+        problem_family="employee_scheduling",
+        summary="员工人数应为整数，但员工信息不全。",
+        known_facts=[],
+        missing_information=["员工名单与每人最大工时"],
+        clarifying_questions=["请提供员工名单与每人最大工时。"],
+        unsupported_reasons=["员工分配是整数决策，但目前信息不全。"],
+        subtasks=[],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
+    )
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            parse=lambda **arguments: SimpleNamespace(output_parsed=analysis)
+        )
+    )
+
+    result = analyze_problem("员工信息不全，人数是整数", client=client)
+
+    assert result.status == "needs_clarification"
+    assert result.unsupported_reasons == []
 
 
 class FakeResponses:
@@ -176,6 +302,7 @@ def test_analyzer_uses_deepseek_structured_responses() -> None:
             employees=[], shifts=[], coverage_requirements=[]
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
     responses = FakeResponses(expected)
     client = SimpleNamespace(responses=responses)
@@ -209,6 +336,7 @@ def test_analyzer_loads_project_environment_before_default_client(monkeypatch) -
             employees=[], shifts=[], coverage_requirements=[]
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
     calls = []
     monkeypatch.setattr(
@@ -295,6 +423,7 @@ def test_ready_analysis_retrieves_hmml_methods_for_each_subtask() -> None:
             ],
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     recommendations = retrieve_methods_for_subtasks(analysis)
@@ -323,6 +452,7 @@ def test_incomplete_analysis_does_not_retrieve_methods() -> None:
             employees=[], shifts=[], coverage_requirements=[]
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     assert retrieve_methods_for_subtasks(analysis) == {}
@@ -394,6 +524,7 @@ def test_ready_analysis_converts_to_solver_problem() -> None:
             ],
         ),
         linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     problem = to_scheduling_problem(analysis)
@@ -480,6 +611,7 @@ def test_ready_linear_program_analysis_converts_to_internal_problem() -> None:
                 ),
             ],
         ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
 
     problem = to_linear_program_problem(analysis)
