@@ -384,8 +384,8 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 **文件：** `docs/本地运行与密钥配置.md`，全项目测试及 Git
 
-- [ ] **步骤 1：更新中文使用文档。** 说明排班、连续 LP、整数最小费用网络流三个已实现领域和各自边界；提供 PowerShell 的离线 Evals、完整 pytest 和单案例 `--live` 命令；解释费用单位换算。
-- [ ] **步骤 2：运行完整 PowerShell pytest。**
+- [x] **步骤 1：更新中文使用文档。** 说明排班、连续 LP、整数最小费用网络流三个已实现领域和各自边界；提供 PowerShell 的离线 Evals、完整 pytest 和单案例 `--live` 命令；解释费用单位换算。
+- [x] **步骤 2：运行完整 PowerShell pytest。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -395,6 +395,6 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：所有排班、LP 与网络流测试通过；允许报告已知的 OR-Tools SWIG deprecation warnings，但不得有失败。
 
-- [ ] **步骤 3：验证离线和在线 Evals。** 运行 `& .\.venv\Scripts\python.exe -m math_modeling_agent.evals`，确认 `api_calls=0`；经用户已授权的 DeepSeek 测试运行 `& .\.venv\Scripts\python.exe -m math_modeling_agent.evals --live --case-id minimum_cost_flow_warehouse_delivery`，报告不得含密钥或原始 API 响应。
-- [ ] **步骤 4：检查并提交文档/回归。** 运行 `git diff --check`，确认 `.env` 不在 `git ls-files`、`git check-ignore -v .env` 命中；用中文提交说明 `完善最小费用流文档与回归`。
-- [ ] **步骤 5：推送提交并核验。** 运行 `git push origin main`，再检查 `git status --short --branch` 与 `git ls-remote origin refs/heads/main`；远端 `main` SHA 必须与本地 `HEAD` 一致。
+- [x] **步骤 3：验证离线和在线 Evals。** 在隔离 worktree 源码上运行离线 Evals，确认 11 个案例有效且 `api_calls=0`；经用户已授权的 DeepSeek 测试分别运行仓库配送可行、容量不足和多商品 unsupported 案例，报告不得含密钥或原始 API 响应。
+- [x] **步骤 4：检查并提交文档/回归。** 运行 `git diff --check`，确认 `.env` 不在 `git ls-files`、`git check-ignore -v .env` 命中；用中文提交说明 `完善最小费用流文档与回归`。
+- [ ] **步骤 5：完成分支集成。** 全量验证通过后，按 `finishing-a-development-branch` 流程检测 worktree 与 base branch，并请用户选择合并到 main、本地保留 feature 分支或其他集成方式；依选择执行后再次验证并同步 GitHub。
