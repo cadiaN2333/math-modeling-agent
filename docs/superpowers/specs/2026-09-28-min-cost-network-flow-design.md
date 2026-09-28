@@ -32,9 +32,8 @@
 
 ## 模块与数据流
 
-- `analysis_agent.py`：更新问题族与提示词、固定 draft Schema、跨领域草稿互斥校验，并新增 `to_minimum_cost_flow_problem()` 转换。
+- `analysis_agent.py`：更新问题族与提示词、固定 draft Schema、跨领域草稿互斥校验、节点/路线草稿引用校验，并新增 `to_minimum_cost_flow_problem()` 转换。
 - `models.py`：增加节点、路线和网络流问题输入模型；校验节点/边编号唯一、路线端点有效、容量非负、供需与费用均为整数。
-- `analysis_agent.py`：校验节点与路线草稿引用有效；非活动网络流草稿使用固定空形状，ready 时与其他领域草稿互斥。
 - 新增 `min_cost_flow_solver.py`：使用 `ortools.graph.python.min_cost_flow.SimpleMinCostFlow` 建立节点和路线，映射为稳定状态，只有最优状态才返回各路线流量与总费用。
 - 新增 `min_cost_flow_validator.py`：不依赖求解器状态，逐边检查 `0 <= flow <= capacity`，逐节点检查流出量减流入量等于净供给，并独立重算总费用。
 - 新增 `min_cost_flow_agent.py`：检索 HMML 最小费用流方法，编排求解和 validator，保持与其他领域一致的 `solver_result`、`validation_report`、`method_recommendations` 顶层结构。
