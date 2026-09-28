@@ -230,7 +230,7 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 **文件：** 新建 `src/math_modeling_agent/min_cost_flow_validator.py`、`tests/test_min_cost_flow_validator.py`
 
-- [ ] **步骤 1：先写 validator 测试。** 正确路线流量必须通过；分别篡改超容量、节点供需守恒、负流量、缺失边/多余边和总费用时，断言报告包含具体错误。
+- [x] **步骤 1：先写 validator 测试。** 正确路线流量必须通过；分别篡改超容量、节点供需守恒、负流量、缺失边/多余边和总费用时，断言报告包含具体错误。
 
 ```python
 def test_validator_accepts_the_optimal_transport_plan() -> None:
@@ -245,7 +245,7 @@ def test_validator_accepts_the_optimal_transport_plan() -> None:
     assert report.errors == []
     assert report.recomputed_total_cost == 80
 ```
-- [ ] **步骤 2：运行新测试确认红灯。**
+- [x] **步骤 2：运行新测试确认红灯。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -255,9 +255,9 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：因 validator 模块尚不存在而失败。
 
-- [ ] **步骤 3：实现报告和校验函数。** 定义 `MinCostFlowValidationReport(is_valid, errors, recomputed_total_cost)` 及 `validate_min_cost_flow_solution(problem, arc_flows, reported_total_cost)`。对每条边检查 flow 为非负整数且不超过 capacity；累计 `outgoing - incoming`，与节点的 signed supply 比较；重算 `sum(flow * unit_cost)` 并与 solver 总费用核对。
-- [ ] **步骤 4：运行 validator 测试确认通过。** 重用步骤 2 命令；预期所有合法/篡改用例均通过断言。
-- [ ] **步骤 5：提交 validator 层。** 使用中文提交说明 `增加最小费用流独立校验器`。
+- [x] **步骤 3：实现报告和校验函数。** 定义 `MinCostFlowValidationReport(is_valid, errors, recomputed_total_cost)` 及 `validate_min_cost_flow_solution(problem, arc_flows, reported_total_cost)`。对每条边检查 flow 为非负整数且不超过 capacity；累计 `outgoing - incoming`，与节点的 signed supply 比较；重算 `sum(flow * unit_cost)` 并与 solver 总费用核对。
+- [x] **步骤 4：运行 validator 测试确认通过。** 重用步骤 2 命令；预期所有合法/篡改用例均通过断言。
+- [x] **步骤 5：提交 validator 层。** 使用中文提交说明 `增加最小费用流独立校验器`。
 
 ## 任务四：固定分析草稿 Schema 和转换
 
