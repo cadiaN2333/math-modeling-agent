@@ -141,3 +141,31 @@ def test_validator_detects_changed_source_file_list() -> None:
 
     assert report.is_valid is False
     assert any("来源文件" in error for error in report.errors)
+
+
+def test_energy_schedule_scales_process_load_and_daily_production() -> None:
+    from math_modeling_agent.energy_park import compute_energy_schedule
+
+    data = _dataset_for_synthetic_typical_day()
+    fractions = [0.0] * 12 + [1.0] * 12
+
+    result = compute_energy_schedule(
+        data,
+        process_fractions=fractions,
+        capacity_scale=2.0,
+    )
+
+    assert result.capacity_scale == 2.0
+    assert result.ammonia_production_tons == pytest.approx(36.0)
+    assert result.hourly_balances[0].process_load_mw == pytest.approx(0.0)
+    assert result.hourly_balances[12].process_load_mw == pytest.approx(41.5)
+
+
+def test_energy_schedule_rejects_fraction_vector_not_covering_day() -> None:
+    from math_modeling_agent.energy_park import compute_energy_schedule
+
+    with pytest.raises(ValueError, match="24 个时段"):
+        compute_energy_schedule(
+            _dataset_for_synthetic_typical_day(),
+            process_fractions=[1.0] * 23,
+        )

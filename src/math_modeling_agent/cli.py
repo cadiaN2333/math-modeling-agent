@@ -17,6 +17,8 @@ from .analysis_agent import (
 )
 from .agent import run_modeling
 from .energy_park import compute_typical_day
+from .energy_park_continuous import run_continuous_question_three
+from .energy_park_discrete import run_discrete_question_two
 from .energy_park_io import load_energy_park_directory
 from .energy_park_validator import validate_typical_day
 from .linear_agent import run_linear_modeling
@@ -81,12 +83,62 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         help="读取电工杯 A 题附件，计算问题一典型日基准",
     )
     input_group.add_argument(
+        "--energy-park-q2",
+        type=Path,
+        metavar="附件目录",
+        help="读取电工杯 A 题附件，计算问题二离散开停调度",
+    )
+    input_group.add_argument(
+        "--energy-park-q3",
+        type=Path,
+        metavar="附件目录",
+        help="读取电工杯 A 题附件，计算问题三连续功率调度",
+    )
+    input_group.add_argument(
         "--solve-draft",
         type=Path,
         metavar="JSON文件",
         help="求解经过用户审阅的结构化分析 JSON",
     )
     args = parser.parse_args(argv)
+
+    if args.energy_park_q3 is not None:
+        try:
+            dataset = load_energy_park_directory(args.energy_park_q3)
+            result = run_continuous_question_three(dataset)
+        except (RuntimeError, ValueError) as exc:
+            print(f"能源园区问题三计算失败：{exc}", file=sys.stderr)
+            return 2
+
+        payload = result.model_dump(mode="json")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        all_valid = all(
+            run.solver_status == "OPTIMAL"
+            and run.operation is not None
+            and run.validation_report is not None
+            and run.validation_report.is_valid
+            for run in [*result.typical_runs, *result.scenario_runs]
+        )
+        return 0 if all_valid else 1
+
+    if args.energy_park_q2 is not None:
+        try:
+            dataset = load_energy_park_directory(args.energy_park_q2)
+            result = run_discrete_question_two(dataset)
+        except (RuntimeError, ValueError) as exc:
+            print(f"能源园区问题二计算失败：{exc}", file=sys.stderr)
+            return 2
+
+        payload = result.model_dump(mode="json")
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        all_valid = all(
+            run.solver_status == "OPTIMAL"
+            and run.operation is not None
+            and run.validation_report is not None
+            and run.validation_report.is_valid
+            for run in [*result.typical_runs, *result.scenario_runs]
+        )
+        return 0 if all_valid else 1
 
     if args.energy_park_q1 is not None:
         try:

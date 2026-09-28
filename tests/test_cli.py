@@ -491,3 +491,46 @@ def test_cli_energy_park_q1_outputs_balanced_results(capsys, monkeypatch) -> Non
     assert result["grid_purchase_mwh"] == pytest.approx(261)
     assert result["validation_report"]["is_valid"] is True
     assert result["source_files"] == ["附件1.xlsx", "附件2.xlsx"]
+
+
+def test_cli_energy_park_q2_runs_all_discrete_targets(capsys, monkeypatch) -> None:
+    from math_modeling_agent import cli
+    from test_energy_park_discrete import _dataset_with_sunny_half_day
+
+    monkeypatch.setattr(
+        cli,
+        "load_energy_park_directory",
+        lambda _path: _dataset_with_sunny_half_day(),
+        raising=False,
+    )
+
+    exit_code = cli.main(["--energy-park-q2", "D:\\例题\\电工杯A"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert result["target_levels_tons_per_day"] == [72.0, 63.0, 54.0, 45.0, 36.0]
+    assert len(result["scenario_runs"]) == 120
+    assert len(result["annual_summaries"]) == 5
+
+
+def test_cli_energy_park_q3_returns_continuous_and_discrete_comparison(
+    capsys,
+    monkeypatch,
+) -> None:
+    from math_modeling_agent import cli
+    from test_energy_park_discrete import _dataset_with_sunny_half_day
+
+    monkeypatch.setattr(
+        cli,
+        "load_energy_park_directory",
+        lambda _path: _dataset_with_sunny_half_day(),
+        raising=False,
+    )
+
+    exit_code = cli.main(["--energy-park-q3", "D:\\例题\\电工杯A"])
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert len(result["scenario_runs"]) == 120
+    assert len(result["discrete_comparison_by_target"]) == 5
+    assert result["modeling_assumptions"]

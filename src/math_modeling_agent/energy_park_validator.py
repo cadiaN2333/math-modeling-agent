@@ -6,7 +6,7 @@ import re
 from pydantic import BaseModel
 
 from .energy_park import TypicalDayResult
-from .energy_park_models import EnergyParkDataset
+from .energy_park_models import EnergyParkDataset, HourlyProfile
 
 
 class EnergyParkValidationReport(BaseModel):
@@ -49,12 +49,27 @@ def _ratio(numerator: float, denominator: float) -> float | None:
 def validate_typical_day(
     data: EnergyParkDataset,
     result: TypicalDayResult,
+    *,
+    wind_profile: HourlyProfile | None = None,
+    pv_profile: HourlyProfile | None = None,
 ) -> EnergyParkValidationReport:
-    """不复用求解结果的汇总字段，逐时重算并比较报告。"""
+    """不复用结果汇总字段，按指定风光曲线和运行比例逐时复算。"""
 
     errors: list[str] = []
     parameters = data.technical
     costs = data.costs
+    wind_profile = wind_profile or data.typical_wind
+    pv_profile = pv_profile or data.typical_pv
+    capacity_scale = result.capacity_scale
+    process_fractions = result.process_fractions
+    if len(process_fractions) != 24:
+        errors.append("逐时运行比例必须有 24 项")
+        process_fractions = [0.0] * 24
+    if (
+        wind_profile.periods != data.ordinary_load.periods
+        or pv_profile.periods != data.ordinary_load.periods
+    ):
+        errors.append("validator 收到的风光曲线与常规负荷时段不一致")
     expected_process_load_mw = (
         parameters.alkaline_power_mw
         + parameters.pem_power_mw
@@ -73,12 +88,15 @@ def validate_typical_day(
         ordinary_load = (
             parameters.ordinary_load_peak_mw * data.ordinary_load.values[index]
         )
-        wind_generation = (
-            parameters.wind_capacity_mw * data.typical_wind.values[index]
-        )
-        pv_generation = parameters.pv_capacity_mw * data.typical_pv.values[index]
+        wind_generation = parameters.wind_capacity_mw * wind_profile.values[index]
+        pv_generation = parameters.pv_capacity_mw * pv_profile.values[index]
         generation = wind_generation + pv_generation
-        load = ordinary_load + expected_process_load_mw
+        process_load = (
+            expected_process_load_mw
+            * capacity_scale
+            * process_fractions[index]
+        )
+        load = ordinary_load + process_load
         purchase = max(load - generation, 0.0)
         export = max(generation - load, 0.0)
         residual = generation + purchase - load - export
@@ -88,7 +106,7 @@ def validate_typical_day(
             {
                 "period": period,
                 "ordinary_load_mw": ordinary_load,
-                "process_load_mw": expected_process_load_mw,
+                "process_load_mw": process_load,
                 "total_load_mw": load,
                 "wind_generation_mw": wind_generation,
                 "pv_generation_mw": pv_generation,
@@ -146,6 +164,17 @@ def validate_typical_day(
     renewable_energy = wind_energy + pv_energy
     purchased_energy = sum(float(row["grid_purchase_mw"]) for row in expected_rows)
     exported_energy = sum(float(row["grid_export_mw"]) for row in expected_rows)
+    expected_production = (
+        parameters.ammonia_tons_per_hour
+        * capacity_scale
+        * sum(process_fractions)
+    )
+    _check_value(
+        errors,
+        "日产氨量",
+        result.ammonia_production_tons,
+        expected_production,
+    )
 
     for label, actual, expected in (
         ("日电量：总用电", result.total_load_mwh, total_load),
@@ -211,9 +240,25 @@ def validate_typical_day(
 
     expected_wind_cost = wind_energy * 1000 * costs.wind_lcoe_yuan_per_kwh
     expected_pv_cost = pv_energy * 1000 * costs.pv_lcoe_yuan_per_kwh
-    expected_alkaline_om = parameters.alkaline_power_mw * 24 * 1000 * costs.alkaline_om_yuan_per_kwh
-    expected_pem_om = parameters.pem_power_mw * 24 * 1000 * costs.pem_om_yuan_per_kwh
-    expected_ammonia_om = parameters.ammonia_power_mw * 24 * 1000 * costs.ammonia_om_yuan_per_kwh
+    total_scaled_fraction = capacity_scale * sum(process_fractions)
+    expected_alkaline_om = (
+        parameters.alkaline_power_mw
+        * total_scaled_fraction
+        * 1000
+        * costs.alkaline_om_yuan_per_kwh
+    )
+    expected_pem_om = (
+        parameters.pem_power_mw
+        * total_scaled_fraction
+        * 1000
+        * costs.pem_om_yuan_per_kwh
+    )
+    expected_ammonia_om = (
+        parameters.ammonia_power_mw
+        * total_scaled_fraction
+        * 1000
+        * costs.ammonia_om_yuan_per_kwh
+    )
     expected_export_revenue = expected_wind_export_revenue + expected_pv_export_revenue
     expected_variable_cost = (
         expected_wind_cost
@@ -224,10 +269,10 @@ def validate_typical_day(
         + expected_pem_om
         + expected_ammonia_om
     )
-    expected_production = parameters.ammonia_tons_per_hour * 24
     expected_capex_daily = (
         costs.ammonia_capex_yuan_per_kg_h2
         * (parameters.alkaline_hydrogen_kg_per_hour + parameters.pem_hydrogen_kg_per_hour)
+        * capacity_scale
         / costs.ammonia_lifetime_years
         / 365
     )

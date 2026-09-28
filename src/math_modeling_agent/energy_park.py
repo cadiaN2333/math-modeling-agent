@@ -1,10 +1,12 @@
 """计算电工杯 A 题问题一的典型日基准。"""
 
 import re
+from math import isfinite
+from typing import Sequence
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from .energy_park_models import EnergyParkDataset
+from .energy_park_models import EnergyParkDataset, HourlyProfile
 
 
 class HourlyEnergyBalance(BaseModel):
@@ -58,9 +60,12 @@ class TypicalDayCosts(BaseModel):
 
 
 class TypicalDayResult(BaseModel):
-    """问题一的逐时计算、绿电指标和成本分解结果。"""
+    """逐时运行计划的功率平衡、绿电指标和成本分解结果。"""
 
     modeling_idea: str
+    capacity_scale: float = Field(gt=0)
+    process_fractions: list[float] = Field(min_length=24, max_length=24)
+    ammonia_production_tons: float = Field(gt=0)
     hourly_balances: list[HourlyEnergyBalance] = Field(min_length=24, max_length=24)
     total_load_mwh: float
     wind_generation_mwh: float
@@ -72,6 +77,16 @@ class TypicalDayResult(BaseModel):
     costs: TypicalDayCosts
     review_items: list[str]
     source_files: list[str]
+
+    @field_validator("process_fractions")
+    @classmethod
+    def process_fractions_must_be_bounded(
+        cls,
+        fractions: list[float],
+    ) -> list[float]:
+        if any(not isfinite(value) or not 0 <= value <= 1 for value in fractions):
+            raise ValueError("逐时运行比例必须是 0 到 1 之间的有限数值")
+        return fractions
 
 
 def _start_hour(period: str) -> int:
@@ -104,32 +119,58 @@ def _ratio(numerator: float, denominator: float) -> float | None:
     return numerator / denominator
 
 
-def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
-    """按题面满负荷假设计算典型日功率和成本。"""
+def compute_energy_schedule(
+    data: EnergyParkDataset,
+    process_fractions: Sequence[float],
+    *,
+    capacity_scale: float = 1.0,
+    wind_profile: HourlyProfile | None = None,
+    pv_profile: HourlyProfile | None = None,
+) -> TypicalDayResult:
+    """按给定的逐时运行比例和产能倍数计算功率平衡与成本。"""
 
     parameters = data.technical
+    if len(process_fractions) != 24:
+        raise ValueError("逐时运行比例必须覆盖 24 个时段")
+    fractions = [float(value) for value in process_fractions]
+    if any(not isfinite(value) or not 0 <= value <= 1 for value in fractions):
+        raise ValueError("逐时运行比例必须是 0 到 1 之间的有限数值")
+    if not isfinite(capacity_scale) or capacity_scale <= 0:
+        raise ValueError("装置产能倍数必须是正的有限数值")
+    if sum(fractions) <= 0:
+        raise ValueError("日产氨量为零，无法计算吨氨成本")
+
+    wind_profile = wind_profile or data.typical_wind
+    pv_profile = pv_profile or data.typical_pv
+    if (
+        wind_profile.periods != data.ordinary_load.periods
+        or pv_profile.periods != data.ordinary_load.periods
+    ):
+        raise ValueError("负荷、风电和光伏曲线的小时标签必须完全一致")
+
     hourly: list[HourlyEnergyBalance] = []
     wind_export_mwh = 0.0
     pv_export_mwh = 0.0
     grid_purchase_cost_yuan = 0.0
-
-    process_load_mw = (
-        parameters.alkaline_power_mw
-        + parameters.pem_power_mw
-        + parameters.ammonia_power_mw
-    )
+    alkaline_om_yuan = 0.0
+    pem_om_yuan = 0.0
+    ammonia_om_yuan = 0.0
     for index, period in enumerate(data.ordinary_load.periods):
+        fraction = fractions[index]
         ordinary_load_mw = (
             parameters.ordinary_load_peak_mw
             * data.ordinary_load.values[index]
         )
         wind_generation_mw = (
-            parameters.wind_capacity_mw * data.typical_wind.values[index]
+            parameters.wind_capacity_mw * wind_profile.values[index]
         )
-        pv_generation_mw = (
-            parameters.pv_capacity_mw * data.typical_pv.values[index]
-        )
+        pv_generation_mw = parameters.pv_capacity_mw * pv_profile.values[index]
         renewable_generation_mw = wind_generation_mw + pv_generation_mw
+        process_load_mw = (
+            parameters.alkaline_power_mw
+            + parameters.pem_power_mw
+            + parameters.ammonia_power_mw
+        ) * capacity_scale * fraction
         total_load_mw = ordinary_load_mw + process_load_mw
         grid_purchase_mw = max(total_load_mw - renewable_generation_mw, 0.0)
         grid_export_mw = max(renewable_generation_mw - total_load_mw, 0.0)
@@ -148,6 +189,27 @@ def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
             grid_purchase_mw
             * 1000
             * _purchase_price_yuan_per_kwh(data, _start_hour(period))
+        )
+        alkaline_om_yuan += (
+            parameters.alkaline_power_mw
+            * capacity_scale
+            * fraction
+            * 1000
+            * data.costs.alkaline_om_yuan_per_kwh
+        )
+        pem_om_yuan += (
+            parameters.pem_power_mw
+            * capacity_scale
+            * fraction
+            * 1000
+            * data.costs.pem_om_yuan_per_kwh
+        )
+        ammonia_om_yuan += (
+            parameters.ammonia_power_mw
+            * capacity_scale
+            * fraction
+            * 1000
+            * data.costs.ammonia_om_yuan_per_kwh
         )
         hourly.append(
             HourlyEnergyBalance(
@@ -213,13 +275,6 @@ def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
     wind_export_revenue_yuan = wind_export_mwh * 1000 * costs.wind_export_price_yuan_per_kwh
     pv_export_revenue_yuan = pv_export_mwh * 1000 * costs.pv_export_price_yuan_per_kwh
     export_revenue_yuan = wind_export_revenue_yuan + pv_export_revenue_yuan
-    alkaline_om_yuan = (
-        parameters.alkaline_power_mw * 24 * 1000 * costs.alkaline_om_yuan_per_kwh
-    )
-    pem_om_yuan = parameters.pem_power_mw * 24 * 1000 * costs.pem_om_yuan_per_kwh
-    ammonia_om_yuan = (
-        parameters.ammonia_power_mw * 24 * 1000 * costs.ammonia_om_yuan_per_kwh
-    )
     variable_operating_cost_yuan = (
         renewable_generation_cost_yuan
         + grid_purchase_cost_yuan
@@ -228,11 +283,13 @@ def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
         + pem_om_yuan
         + ammonia_om_yuan
     )
-    production_tons = parameters.ammonia_tons_per_hour * 24
+    production_tons = (
+        parameters.ammonia_tons_per_hour * capacity_scale * sum(fractions)
+    )
     h2_processing_capacity_kg_per_hour = (
         parameters.alkaline_hydrogen_kg_per_hour
         + parameters.pem_hydrogen_kg_per_hour
-    )
+    ) * capacity_scale
     ammonia_capex_daily_yuan = (
         costs.ammonia_capex_yuan_per_kg_h2
         * h2_processing_capacity_kg_per_hour
@@ -278,9 +335,12 @@ def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
     ]
     return TypicalDayResult(
         modeling_idea=(
-            "将 24 小时标幺曲线乘以对应峰值或装机容量，叠加满负荷电氢氨设备功率；"
-            "逐小时用功率平衡拆分网购和上网，再汇总日电量、绿电指标和成本。"
+            "将 24 小时标幺曲线乘以对应峰值或装机容量，叠加逐时电氢氨设备功率；"
+            "逐小时用功率平衡拆分网购和上网，再汇总产量、电量、绿电指标和成本。"
         ),
+        capacity_scale=capacity_scale,
+        process_fractions=fractions,
+        ammonia_production_tons=production_tons,
         hourly_balances=hourly,
         total_load_mwh=total_load_mwh,
         wind_generation_mwh=wind_generation_mwh,
@@ -293,3 +353,9 @@ def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
         review_items=review_items,
         source_files=data.source_files,
     )
+
+
+def compute_typical_day(data: EnergyParkDataset) -> TypicalDayResult:
+    """按题面满负荷假设计算典型日功率和成本。"""
+
+    return compute_energy_schedule(data, [1.0] * 24)
