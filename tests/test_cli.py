@@ -11,11 +11,11 @@ def test_cli_json_output_preserves_unicode_with_gbk_console(monkeypatch) -> None
     console = TextIOWrapper(output_bytes, encoding="gbk")
     monkeypatch.setattr(cli.sys, "stdout", console)
 
-    cli._print_json({"化学式": "H₂", "说明": "绿电成本"})
+    cli._print_json({"化学式": "H₂", "说明": "绿电成本 🚀"})
     console.flush()
 
     serialized = output_bytes.getvalue().decode("gbk")
-    assert json.loads(serialized) == {"化学式": "H₂", "说明": "绿电成本"}
+    assert json.loads(serialized) == {"化学式": "H₂", "说明": "绿电成本 🚀"}
 
 
 def empty_linear_program_draft():

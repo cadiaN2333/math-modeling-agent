@@ -28,6 +28,21 @@ from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
 
 
+def _escape_unencodable_json_characters(text: str, encoding: str) -> str:
+    """将终端无法编码的 JSON 字符转成合法的 Unicode 转义序列。"""
+
+    escaped_parts: list[str] = []
+    for character in text:
+        try:
+            character.encode(encoding)
+        except UnicodeEncodeError:
+            escaped_character = json.dumps(character, ensure_ascii=True)
+            escaped_parts.append(escaped_character[1:-1])
+        else:
+            escaped_parts.append(character)
+    return "".join(escaped_parts)
+
+
 def _print_json(payload: object) -> None:
     """按当前终端编码安全输出 JSON，必要时转义无法编码的字符。"""
 
@@ -36,10 +51,7 @@ def _print_json(payload: object) -> None:
     try:
         serialized.encode(encoding)
     except UnicodeEncodeError:
-        serialized = serialized.encode(
-            encoding,
-            errors="backslashreplace",
-        ).decode(encoding)
+        serialized = _escape_unencodable_json_characters(serialized, encoding)
     print(serialized)
 
 
