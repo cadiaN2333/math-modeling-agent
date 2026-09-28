@@ -1,4 +1,4 @@
-"""排班 MVP 的案例加载、离线评分和可选在线 Evals 命令。"""
+"""运筹优化 Agent 的案例加载、离线评分和可选在线 Evals 命令。"""
 
 import argparse
 import json
@@ -10,10 +10,12 @@ from typing import Any, Callable
 from .analysis_agent import (
     analyze_problem,
     to_linear_program_problem,
+    to_minimum_cost_flow_problem,
     to_scheduling_problem,
 )
 from .agent import ModelingRun, run_modeling
 from .linear_agent import LinearModelingRun, run_linear_modeling
+from .min_cost_flow_agent import MinCostFlowModelingRun, run_min_cost_flow_modeling
 
 
 ANALYSIS_STATUSES = {"ready", "needs_clarification", "unsupported"}
@@ -93,6 +95,34 @@ def load_eval_cases(path: Path | None = None) -> list[dict[str, Any]]:
                 raise ValueError(f"ready 案例 {case_id} 必须声明预期方法")
             if case.get("expected_validation") not in {"valid", "not_run"}:
                 raise ValueError(f"ready 案例 {case_id} 必须声明 validator 期望")
+                if case.get("family") == "transportation":
+                    if not isinstance(case.get("expected_model"), dict):
+                        raise ValueError(f"ready 网络流案例 {case_id} 必须声明 expected_model")
+                    if case.get("expected_validation") == "valid":
+                        expected_route_flows = case.get("expected_route_flows")
+                        expected_total_cost = case.get("expected_total_cost")
+                        if not isinstance(expected_route_flows, list) or not expected_route_flows:
+                            raise ValueError(f"可行网络流案例 {case_id} 必须声明路线流量")
+                        if any(
+                            not isinstance(route, list)
+                            or len(route) != 3
+                            or not isinstance(route[0], str)
+                            or not isinstance(route[1], str)
+                            or not isinstance(route[2], int)
+                            or isinstance(route[2], bool)
+                            or route[2] < 0
+                            for route in expected_route_flows
+                        ):
+                            raise ValueError(f"网络流案例 {case_id} 的 expected_route_flows 无效")
+                        route_pairs = [
+                            (route[0], route[1]) for route in expected_route_flows
+                        ]
+                        if len(route_pairs) != len(set(route_pairs)):
+                            raise ValueError(f"网络流案例 {case_id} 的路线期望不能重复")
+                        if not isinstance(expected_total_cost, int) or isinstance(
+                            expected_total_cost, bool
+                        ):
+                            raise ValueError(f"网络流案例 {case_id} 必须声明整数 expected_total_cost")
         elif "expected_solver_statuses" in case:
             raise ValueError(f"非 ready 案例 {case_id} 不能要求求解状态")
 
@@ -180,6 +210,34 @@ def _normalize_linear_program_draft(draft: Any) -> Any:
     return normalized
 
 
+def _normalize_min_cost_flow_draft(draft: Any) -> Any:
+    """按 node ID 和路线端点排序，忽略自动生成的路线 ID。"""
+
+    if not isinstance(draft, dict):
+        return draft
+
+    normalized = dict(draft)
+    normalized["nodes"] = sorted(
+        (dict(node) for node in draft.get("nodes", [])),
+        key=lambda item: item.get("node_id", ""),
+    )
+    arcs = []
+    for arc in draft.get("arcs", []):
+        item = dict(arc)
+        item.pop("arc_id", None)
+        arcs.append(item)
+    normalized["arcs"] = sorted(
+        arcs,
+        key=lambda item: (
+            item.get("from_node", ""),
+            item.get("to_node", ""),
+            item.get("capacity", 0),
+            item.get("unit_cost", 0),
+        ),
+    )
+    return normalized
+
+
 def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """根据案例期望对分析结果及可选建模结果逐项评分。"""
 
@@ -211,6 +269,10 @@ def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, An
             actual_model = analysis.get("linear_program_draft")
             normalized_expected = _normalize_linear_program_draft(expected_model)
             normalized_actual = _normalize_linear_program_draft(actual_model)
+        elif case.get("family") == "transportation":
+            actual_model = analysis.get("minimum_cost_flow_draft")
+            normalized_expected = _normalize_min_cost_flow_draft(expected_model)
+            normalized_actual = _normalize_min_cost_flow_draft(actual_model)
         else:
             actual_model = analysis.get("scheduling_draft")
             normalized_expected = _normalize_scheduling_draft(expected_model)
@@ -288,6 +350,70 @@ def evaluate_case(case: dict[str, Any], payload: dict[str, Any]) -> dict[str, An
                 expected_objective_value,
                 actual_objective_value,
             )
+
+        expected_route_flows = case.get("expected_route_flows")
+        if expected_route_flows is not None:
+            network_draft = analysis.get("minimum_cost_flow_draft") or {}
+            arc_routes = {
+                arc.get("arc_id"): (arc.get("from_node"), arc.get("to_node"))
+                for arc in network_draft.get("arcs", [])
+                if isinstance(arc, dict)
+            }
+            actual_arc_flows = solver_result.get("arc_flows") or {}
+            unknown_arc_ids: list[str] = []
+            actual_route_flows: dict[tuple[str, str], int] = {}
+            for route in network_draft.get("arcs", []):
+                if isinstance(route, dict):
+                    pair = (route.get("from_node"), route.get("to_node"))
+                    actual_route_flows.setdefault(pair, 0)
+            if not isinstance(actual_arc_flows, dict):
+                unknown_arc_ids.append("arc_flows 不是对象")
+                actual_arc_flows = {}
+            for arc_id, flow in actual_arc_flows.items():
+                route = arc_routes.get(arc_id)
+                if route is None:
+                    unknown_arc_ids.append(str(arc_id))
+                    continue
+                actual_route_flows[route] = actual_route_flows.get(route, 0) + flow
+
+            expected_route_map = {
+                (from_node, to_node): flow
+                for from_node, to_node, flow in expected_route_flows
+            }
+            routes_match = (
+                not unknown_arc_ids and actual_route_flows == expected_route_map
+            )
+            record(
+                "route_flows",
+                routes_match,
+                sorted(
+                    [from_node, to_node, flow]
+                    for (from_node, to_node), flow in expected_route_map.items()
+                ),
+                {
+                    "routes": sorted(
+                        [from_node, to_node, flow]
+                        for (from_node, to_node), flow in actual_route_flows.items()
+                    ),
+                    "unknown_arc_ids": sorted(unknown_arc_ids),
+                },
+            )
+
+        expected_total_cost = case.get("expected_total_cost")
+        if expected_total_cost is not None:
+            actual_total_cost = solver_result.get("total_cost")
+            total_cost_matches = (
+                isinstance(actual_total_cost, int)
+                and not isinstance(actual_total_cost, bool)
+                and actual_total_cost == expected_total_cost
+            )
+            record(
+                "total_cost",
+                total_cost_matches,
+                expected_total_cost,
+                actual_total_cost,
+            )
+
         expected_validation = case.get("expected_validation")
         validation_report = (modeling_run or {}).get("validation_report")
         if expected_validation == "valid":
@@ -376,7 +502,7 @@ def _build_report(
 
     return {
         "mode": "live",
-        "scope": "员工排班与连续单目标线性规划；不代表通用数学建模能力",
+        "scope": "员工排班、连续单目标线性规划与整数最小费用网络流；不代表通用数学建模能力",
         "api_calls": count,
         "case_count": count,
         "passed_count": passed_count,
@@ -431,7 +557,7 @@ def main(
             json.dumps(
                 {
                     "mode": "offline_validation",
-                    "scope": "员工排班与连续单目标线性规划；不代表通用数学建模能力",
+                    "scope": "员工排班、连续单目标线性规划与整数最小费用网络流；不代表通用数学建模能力",
                     "case_count": len(cases),
                     "api_calls": 0,
                     "message": "案例文件有效；未调用 DeepSeek。传入 --live 才执行在线评测。",
@@ -454,10 +580,14 @@ def main(
             if analysis.status == "ready":
                 if analysis.problem_family == "employee_scheduling":
                     problem = to_scheduling_problem(analysis)
-                    modeling_run: ModelingRun | LinearModelingRun = run_modeling(problem)
+                    modeling_run: ModelingRun | LinearModelingRun | MinCostFlowModelingRun
+                    modeling_run = run_modeling(problem)
                 elif analysis.problem_family == "linear_programming":
                     problem = to_linear_program_problem(analysis)
                     modeling_run = run_linear_modeling(problem)
+                elif analysis.problem_family == "minimum_cost_flow":
+                    problem = to_minimum_cost_flow_problem(analysis)
+                    modeling_run = run_min_cost_flow_modeling(problem)
                 else:
                     raise ValueError("ready 分析没有对应的领域适配器")
                 payload["modeling_run"] = asdict(modeling_run)

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scope": "员工排班与连续单目标线性规划；运输/网络流仍测试能力边界",
+  "scope": "员工排班、连续单目标线性规划和整数单商品最小费用网络流；其他网络流仍测试能力边界",
   "cases": [
     {
       "id": "clarify_missing_employee_max_hours",
@@ -166,14 +166,70 @@
       "expected_validation": "not_run"
     },
     {
-      "id": "unsupported_transportation_network_flow",
+      "id": "minimum_cost_flow_warehouse_delivery",
       "family": "transportation",
-      "request": "有两个仓库和三个门店，仓库有供货上限、门店有需求量，每条配送路线有单位运输成本；求满足需求且总运费最低的运输方案。",
+      "request": "运输按整数箱计，费用按元/箱计。仓库W1（仓库一）供给20箱，仓库W2（仓库二）供给30箱；门店S1（门店一）需求25箱，门店S2（门店二）需求25箱。可用路线只有W1到S1（容量20，单位运费2）、W1到S2（容量20，单位运费4）、W2到S1（容量25，单位运费3）、W2到S2（容量30，单位运费1）。必须满足全部门店需求，求最低总运费。",
+      "expected_analysis_status": "ready",
+      "expected_model": {
+        "nodes": [
+          {"node_id": "W1", "name": "仓库一", "supply": 20},
+          {"node_id": "W2", "name": "仓库二", "supply": 30},
+          {"node_id": "S1", "name": "门店一", "supply": -25},
+          {"node_id": "S2", "name": "门店二", "supply": -25}
+        ],
+        "arcs": [
+          {"arc_id": "W1_S1", "from_node": "W1", "to_node": "S1", "capacity": 20, "unit_cost": 2},
+          {"arc_id": "W1_S2", "from_node": "W1", "to_node": "S2", "capacity": 20, "unit_cost": 4},
+          {"arc_id": "W2_S1", "from_node": "W2", "to_node": "S1", "capacity": 25, "unit_cost": 3},
+          {"arc_id": "W2_S2", "from_node": "W2", "to_node": "S2", "capacity": 30, "unit_cost": 1}
+        ],
+        "flow_unit": "箱",
+        "cost_unit": "元/箱"
+      },
+      "expected_solver_statuses": ["OPTIMAL"],
+      "expected_method_id": "minimum_cost_flow",
+      "expected_validation": "valid",
+      "expected_route_flows": [
+        ["W1", "S1", 20],
+        ["W1", "S2", 0],
+        ["W2", "S1", 5],
+        ["W2", "S2", 25]
+      ],
+      "expected_total_cost": 80
+    },
+    {
+      "id": "minimum_cost_flow_infeasible_capacity",
+      "family": "transportation",
+      "request": "运输按整数箱计，费用按元/箱计。仓库W1（仓库一）供给20箱、W2（仓库二）供给30箱；门店S1（门店一）需求25箱、S2（门店二）需求25箱。路线只有W1到S1（容量10，单位运费2）、W2到S1（容量25，单位运费3）、W2到S2（容量30，单位运费1）。必须满足全部需求，判断是否存在可行运输方案。",
+      "expected_analysis_status": "ready",
+      "expected_model": {
+        "nodes": [
+          {"node_id": "W1", "name": "仓库一", "supply": 20},
+          {"node_id": "W2", "name": "仓库二", "supply": 30},
+          {"node_id": "S1", "name": "门店一", "supply": -25},
+          {"node_id": "S2", "name": "门店二", "supply": -25}
+        ],
+        "arcs": [
+          {"arc_id": "W1_S1", "from_node": "W1", "to_node": "S1", "capacity": 10, "unit_cost": 2},
+          {"arc_id": "W2_S1", "from_node": "W2", "to_node": "S1", "capacity": 25, "unit_cost": 3},
+          {"arc_id": "W2_S2", "from_node": "W2", "to_node": "S2", "capacity": 30, "unit_cost": 1}
+        ],
+        "flow_unit": "箱",
+        "cost_unit": "元/箱"
+      },
+      "expected_solver_statuses": ["INFEASIBLE"],
+      "expected_method_id": "minimum_cost_flow",
+      "expected_validation": "not_run"
+    },
+    {
+      "id": "unsupported_multicommodity_flow",
+      "family": "transportation",
+      "request": "在仓库和门店网络中同时配送商品A和商品B，两种商品有不同供需量，但共享每条路线的容量；要求满足各商品需求并最小化总运费。",
       "expected_analysis_status": "unsupported",
       "required_text_groups": [
         {
           "fields": ["unsupported_reasons"],
-          "any_of": ["运输", "网络流", "非员工排班", "只支持员工排班"]
+          "any_of": ["多商品流", "多商品", "共享容量"]
         }
       ]
     }

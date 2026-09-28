@@ -338,7 +338,7 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 **文件：** `src/math_modeling_agent/evals.py`、`evals/cases.json`、`tests/test_evals.py`
 
-- [ ] **步骤 1：先写评分器测试。** 网络流 draft 比较不受 nodes/arcs 列表顺序和生成的 `arc_id` 顺序影响；测试最优状态、已实现方法、validator、每条期望路线流量与总费用；错误路线或错误总费用必须失败。
+- [x] **步骤 1：先写评分器测试。** 网络流 draft 比较不受 nodes/arcs 列表顺序和生成的 `arc_id` 顺序影响；测试最优状态、已实现方法、validator、每条期望路线流量与总费用；错误路线或错误总费用必须失败。
 
 ```python
 def test_eval_scores_expected_network_routes_and_total_cost() -> None:
@@ -364,7 +364,7 @@ def test_eval_scores_expected_network_routes_and_total_cost() -> None:
 
     assert result["passed"] is True
 ```
-- [ ] **步骤 2：运行红灯测试。**
+- [x] **步骤 2：运行红灯测试。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -374,10 +374,10 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：新检查因评分器尚不识别网络流 draft/route flows 而失败。
 
-- [ ] **步骤 3：实现 draft 归一化和 route-flow 评分。** 忽略任意生成的 `arc_id`，但保留节点编号、端点、容量、单位费用和单位；通过分析 draft 的 arc ID→端点映射把 solver flows 转成 `(from_node,to_node)` 路线并比较；整数费用与整数流量必须精确匹配。
-- [ ] **步骤 4：升级 Evals 案例。** 将 `unsupported_transportation_network_flow` 替换为 ready 案例 `minimum_cost_flow_warehouse_delivery`，expected_model 包含四个节点、四条边、`flow_unit="箱"`、`cost_unit="元/箱"`；期望 `OPTIMAL`、总费用 80、四条路线流量 W1→S1=20、W1→S2=0、W2→S1=5、W2→S2=25。增加 `minimum_cost_flow_infeasible_capacity`，使可用出边容量小于总需求，期望 `INFEASIBLE` 和 validator `not_run`；再增加 `unsupported_multicommodity_flow`，确保多商品流仍返回 unsupported。案例总数更新为 11。
-- [ ] **步骤 5：扩展在线 Evals dispatcher。** ready 网络流分析转换为 `MinCostFlowProblem` 并调用 `run_min_cost_flow_modeling`；离线默认仍不调用 DeepSeek。
-- [ ] **步骤 6：运行 Evals 测试。** 重用步骤 2 命令；预期 dataset 为 11 个唯一案例且 ready 领域用例声明模型、状态、方法和 validator 期望。
+- [x] **步骤 3：实现 draft 归一化和 route-flow 评分。** 忽略任意生成的 `arc_id`，但保留节点编号、端点、容量、单位费用和单位；通过分析 draft 的 arc ID→端点映射把 solver flows 转成 `(from_node,to_node)` 路线并比较；整数费用与整数流量必须精确匹配。
+- [x] **步骤 4：升级 Evals 案例。** 将 `unsupported_transportation_network_flow` 替换为 ready 案例 `minimum_cost_flow_warehouse_delivery`，expected_model 包含四个节点、四条边、`flow_unit="箱"`、`cost_unit="元/箱"`；期望 `OPTIMAL`、总费用 80、四条路线流量 W1→S1=20、W1→S2=0、W2→S1=5、W2→S2=25。增加 `minimum_cost_flow_infeasible_capacity`，使可用出边容量小于总需求，期望 `INFEASIBLE` 和 validator `not_run`；再增加 `unsupported_multicommodity_flow`，确保多商品流仍返回 unsupported。案例总数更新为 11。
+- [x] **步骤 5：扩展在线 Evals dispatcher。** ready 网络流分析转换为 `MinCostFlowProblem` 并调用 `run_min_cost_flow_modeling`；离线默认仍不调用 DeepSeek。
+- [x] **步骤 6：运行 Evals 测试。** 重用步骤 2 命令；预期 dataset 为 11 个唯一案例且 ready 领域用例声明模型、状态、方法和 validator 期望。
 - [ ] **步骤 7：提交 Evals。** 使用中文提交说明 `增加最小费用流在线与离线评测`。
 
 ## 任务七：文档、完整测试与发布

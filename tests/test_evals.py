@@ -12,6 +12,49 @@ def empty_min_cost_flow_draft():
     )
 
 
+def make_expected_transport_draft():
+    return {
+        "nodes": [
+            {"node_id": "W1", "name": "仓库一", "supply": 20},
+            {"node_id": "W2", "name": "仓库二", "supply": 30},
+            {"node_id": "S1", "name": "门店一", "supply": -25},
+            {"node_id": "S2", "name": "门店二", "supply": -25},
+        ],
+        "arcs": [
+            {
+                "arc_id": "W1_S1",
+                "from_node": "W1",
+                "to_node": "S1",
+                "capacity": 20,
+                "unit_cost": 2,
+            },
+            {
+                "arc_id": "W1_S2",
+                "from_node": "W1",
+                "to_node": "S2",
+                "capacity": 20,
+                "unit_cost": 4,
+            },
+            {
+                "arc_id": "W2_S1",
+                "from_node": "W2",
+                "to_node": "S1",
+                "capacity": 25,
+                "unit_cost": 3,
+            },
+            {
+                "arc_id": "W2_S2",
+                "from_node": "W2",
+                "to_node": "S2",
+                "capacity": 30,
+                "unit_cost": 1,
+            },
+        ],
+        "flow_unit": "箱",
+        "cost_unit": "元/箱",
+    }
+
+
 def test_eval_case_fails_when_analysis_status_is_wrong() -> None:
     from math_modeling_agent.evals import evaluate_case
 
@@ -274,6 +317,121 @@ def test_eval_case_scores_linear_program_structure_values_and_objective() -> Non
     }
 
 
+def test_eval_scores_network_flow_model_routes_and_total_cost() -> None:
+    from math_modeling_agent.evals import evaluate_case
+    from min_cost_flow_fixtures import make_transport_eval_payload
+
+    case = {
+        "id": "minimum_cost_flow_warehouse_delivery",
+        "family": "transportation",
+        "expected_analysis_status": "ready",
+        "expected_model": make_expected_transport_draft(),
+        "expected_solver_statuses": ["OPTIMAL"],
+        "expected_method_id": "minimum_cost_flow",
+        "expected_validation": "valid",
+        "expected_route_flows": [
+            ["W1", "S1", 20],
+            ["W1", "S2", 0],
+            ["W2", "S1", 5],
+            ["W2", "S2", 25],
+        ],
+        "expected_total_cost": 80,
+    }
+
+    result = evaluate_case(case, make_transport_eval_payload())
+
+    assert result["passed"] is True
+    assert {check["name"] for check in result["checks"]} >= {
+        "structured_model",
+        "route_flows",
+        "total_cost",
+    }
+
+
+def test_eval_ignores_min_cost_flow_arc_ids_and_order() -> None:
+    from math_modeling_agent.evals import evaluate_case
+    from min_cost_flow_fixtures import make_transport_eval_payload
+
+    expected_flows = [
+        ["W1", "S1", 20],
+        ["W1", "S2", 0],
+        ["W2", "S1", 5],
+        ["W2", "S2", 25],
+    ]
+    case = {
+        "id": "minimum_cost_flow_order_independent",
+        "family": "transportation",
+        "expected_analysis_status": "ready",
+        "expected_model": make_expected_transport_draft(),
+        "expected_solver_statuses": ["OPTIMAL"],
+        "expected_method_id": "minimum_cost_flow",
+        "expected_validation": "valid",
+        "expected_route_flows": expected_flows,
+        "expected_total_cost": 80,
+    }
+    payload = make_transport_eval_payload()
+    draft = payload["analysis"]["minimum_cost_flow_draft"]
+    old_flows = payload["modeling_run"]["solver_result"]["arc_flows"]
+    reversed_arcs = list(reversed(draft["arcs"]))
+    new_flows = {}
+    for index, arc in enumerate(reversed_arcs, start=1):
+        old_id = arc["arc_id"]
+        new_id = f"R{index}"
+        arc["arc_id"] = new_id
+        new_flows[new_id] = old_flows[old_id]
+    draft["arcs"] = reversed_arcs
+    draft["nodes"] = list(reversed(draft["nodes"]))
+    payload["modeling_run"]["solver_result"]["arc_flows"] = new_flows
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is True
+
+
+def test_live_eval_routes_ready_min_cost_flow_to_flow_adapter(monkeypatch, capsys) -> None:
+    from math_modeling_agent import evals
+    from min_cost_flow_fixtures import make_ready_analysis, make_transport_eval_payload
+
+    case = {
+        "id": "minimum_cost_flow_route_dispatch",
+        "family": "transportation",
+        "request": "最小化运输费用。",
+        "expected_analysis_status": "ready",
+        "expected_model": make_expected_transport_draft(),
+        "expected_solver_statuses": ["OPTIMAL"],
+        "expected_method_id": "minimum_cost_flow",
+        "expected_validation": "valid",
+        "expected_route_flows": [
+            ["W1", "S1", 20],
+            ["W1", "S2", 0],
+            ["W2", "S1", 5],
+            ["W2", "S2", 25],
+        ],
+        "expected_total_cost": 80,
+    }
+    analysis = make_ready_analysis()
+    calls = []
+    modeling_run = make_transport_eval_payload()["modeling_run"]
+    monkeypatch.setattr(evals, "load_eval_cases", lambda: [case])
+    monkeypatch.setattr(evals, "to_minimum_cost_flow_problem", lambda item: "flow-problem")
+    monkeypatch.setattr(
+        evals,
+        "run_min_cost_flow_modeling",
+        lambda problem: calls.append(problem) or object(),
+    )
+    monkeypatch.setattr(evals, "asdict", lambda result: modeling_run)
+
+    exit_code = evals.main(
+        ["--live", "--case-id", case["id"]],
+        analyzer=lambda request: analysis,
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert calls == ["flow-problem"]
+    assert report["results"][0]["passed"] is True
+
+
 def test_live_eval_routes_ready_linear_program_to_lp_adapter(monkeypatch, capsys) -> None:
     from types import SimpleNamespace
 
@@ -328,13 +486,13 @@ def test_live_eval_routes_ready_linear_program_to_lp_adapter(monkeypatch, capsys
     assert report["results"][0]["passed"] is True
 
 
-def test_eval_dataset_has_nine_unique_valid_domain_cases() -> None:
+def test_eval_dataset_has_eleven_unique_valid_domain_cases() -> None:
     from math_modeling_agent.evals import load_eval_cases
 
     cases = load_eval_cases()
     case_ids = [case["id"] for case in cases]
 
-    assert len(cases) == 9
+    assert len(cases) == 11
     assert len(case_ids) == len(set(case_ids))
     assert {case["family"] for case in cases} == {
         "scheduling",
@@ -345,7 +503,13 @@ def test_eval_dataset_has_nine_unique_valid_domain_cases() -> None:
         case for case in cases if case["id"] == "linear_programming_production_plan"
     )["expected_analysis_status"] == "ready"
     assert next(
-        case for case in cases if case["id"] == "unsupported_transportation_network_flow"
+        case for case in cases if case["id"] == "minimum_cost_flow_warehouse_delivery"
+    )["expected_analysis_status"] == "ready"
+    assert next(
+        case for case in cases if case["id"] == "minimum_cost_flow_infeasible_capacity"
+    )["expected_solver_statuses"] == ["INFEASIBLE"]
+    assert next(
+        case for case in cases if case["id"] == "unsupported_multicommodity_flow"
     )["expected_analysis_status"] == "unsupported"
     assert all(
         case.get("expected_model")
@@ -353,6 +517,16 @@ def test_eval_dataset_has_nine_unique_valid_domain_cases() -> None:
         for case in cases
         if case["family"] == "linear_programming"
         and case["expected_analysis_status"] == "ready"
+    )
+    assert all(
+        case.get("expected_model")
+        and case.get("expected_route_flows")
+        and case.get("expected_total_cost") is not None
+        and case.get("expected_method_id") == "minimum_cost_flow"
+        for case in cases
+        if case["family"] == "transportation"
+        and case["expected_analysis_status"] == "ready"
+        and case["expected_validation"] == "valid"
     )
     assert all(case["request"].strip() for case in cases)
     assert all(case["expected_analysis_status"] in {
@@ -378,7 +552,7 @@ def test_evals_cli_defaults_to_offline_without_calling_analyzer(capsys) -> None:
 
     assert exit_code == 0
     assert report["mode"] == "offline_validation"
-    assert report["case_count"] == 9
+    assert report["case_count"] == 11
     assert report["api_calls"] == 0
 
 
@@ -393,16 +567,16 @@ def test_live_eval_uses_injected_analyzer_for_unsupported_case(capsys) -> None:
     case = next(
         item
         for item in load_eval_cases()
-        if item["id"] == "unsupported_transportation_network_flow"
+        if item["id"] == "unsupported_multicommodity_flow"
     )
     analysis = ProblemAnalysis(
         status="unsupported",
-        problem_family="other",
-        summary="这是运输与网络流优化问题。当前系统暂不支持该领域。",
-        known_facts=["用户希望安排仓库与门店运输。"],
+        problem_family="minimum_cost_flow",
+        summary="这是多商品共享路线容量的运输网络流问题。",
+        known_facts=["用户希望同时配送商品A和商品B。"],
         missing_information=[],
         clarifying_questions=[],
-        unsupported_reasons=["当前版本尚未实现运输/网络流求解器。"],
+        unsupported_reasons=["当前版本尚未支持多商品流和共享路线容量的约束。"],
         subtasks=[],
         scheduling_draft=SchedulingDraft(
             employees=[], shifts=[], coverage_requirements=[]
