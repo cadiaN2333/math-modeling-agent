@@ -205,6 +205,7 @@ def solve_discrete_schedule(
         capacity_scale=capacity_scale,
         wind_profile=wind_profile,
         pv_profile=pv_profile,
+        include_cost_sensitivity=False,
     )
     validation_report = validate_discrete_schedule(
         data,

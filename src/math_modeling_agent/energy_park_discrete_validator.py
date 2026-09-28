@@ -27,6 +27,7 @@ def validate_discrete_schedule(
         operation,
         wind_profile=wind_profile,
         pv_profile=pv_profile,
+        require_cost_sensitivity=False,
     )
     errors = list(base_report.errors)
     if len(hourly_on) != 24:

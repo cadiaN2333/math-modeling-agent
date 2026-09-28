@@ -93,6 +93,101 @@ def test_typical_day_returns_cost_components_and_explicit_capex_basis() -> None:
     assert "铭牌氢处理能力" in result.costs.ammonia_capex_assumption
 
 
+def test_cost_sensitivity_reports_exact_one_percent_parameter_impacts() -> None:
+    from math_modeling_agent.energy_park import compute_typical_day
+
+    result = compute_typical_day(_dataset_for_synthetic_typical_day())
+    sensitivities = {
+        item.component_id: item for item in result.costs.sensitivity_analysis
+    }
+
+    assert set(sensitivities) == {
+        "wind_lcoe",
+        "pv_lcoe",
+        "purchase_price_peak",
+        "purchase_price_flat",
+        "purchase_price_valley",
+        "wind_export_price",
+        "pv_export_price",
+        "alkaline_om",
+        "pem_om",
+        "ammonia_om",
+        "ammonia_capex",
+    }
+    assert sensitivities["wind_lcoe"].base_parameter_value == pytest.approx(0.15)
+    assert sensitivities["wind_lcoe"].parameter_unit == "元/kWh"
+    assert sensitivities["wind_lcoe"].base_amount_yuan == pytest.approx(36000)
+    assert sensitivities["purchase_price_peak"].base_amount_yuan == pytest.approx(
+        34904.4
+    )
+    assert sensitivities["purchase_price_flat"].base_amount_yuan == pytest.approx(
+        39632.85
+    )
+    assert sensitivities["purchase_price_valley"].base_amount_yuan == pytest.approx(
+        52130.4
+    )
+    assert (
+        sensitivities[
+            "wind_lcoe"
+        ].variable_cost_delta_yuan_per_ton_for_one_percent_increase
+        == pytest.approx(10)
+    )
+    assert (
+        sensitivities["wind_export_price"].base_amount_yuan
+        == pytest.approx(35900.5)
+    )
+    assert (
+        sensitivities[
+            "wind_export_price"
+        ].variable_cost_delta_yuan_per_ton_for_one_percent_increase
+        < 0
+    )
+    assert (
+        sensitivities[
+            "ammonia_capex"
+        ].variable_cost_delta_yuan_per_ton_for_one_percent_increase
+        == pytest.approx(0)
+    )
+    assert (
+        sensitivities[
+            "ammonia_capex"
+        ].capex_included_cost_delta_yuan_per_ton_for_one_percent_increase
+        == pytest.approx(
+            result.costs.ammonia_capex_daily_yuan
+            * 0.01
+            / result.ammonia_production_tons
+        )
+    )
+    assert "保持当前运行计划" in result.costs.sensitivity_assumption
+
+
+def test_validator_detects_tampered_cost_sensitivity() -> None:
+    from math_modeling_agent.energy_park import compute_typical_day
+    from math_modeling_agent.energy_park_validator import validate_typical_day
+
+    data = _dataset_for_synthetic_typical_day()
+    result = compute_typical_day(data)
+    first_item = result.costs.sensitivity_analysis[0].model_copy(
+        update={
+            "variable_cost_delta_yuan_per_ton_for_one_percent_increase": 999.0
+        }
+    )
+    altered_costs = result.costs.model_copy(
+        update={
+            "sensitivity_analysis": [
+                first_item,
+                *result.costs.sensitivity_analysis[1:],
+            ]
+        }
+    )
+    altered_result = result.model_copy(update={"costs": altered_costs})
+
+    report = validate_typical_day(data, altered_result)
+
+    assert report.is_valid is False
+    assert any("成本敏感度" in error for error in report.errors), report.errors
+
+
 def test_validator_detects_tampered_power_balance() -> None:
     from math_modeling_agent.energy_park import compute_typical_day
     from math_modeling_agent.energy_park_validator import validate_typical_day

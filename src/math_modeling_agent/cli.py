@@ -28,6 +28,21 @@ from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
 
 
+def _print_json(payload: object) -> None:
+    """按当前终端编码安全输出 JSON，必要时转义无法编码的字符。"""
+
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    encoding = sys.stdout.encoding or "utf-8"
+    try:
+        serialized.encode(encoding)
+    except UnicodeEncodeError:
+        serialized = serialized.encode(
+            encoding,
+            errors="backslashreplace",
+        ).decode(encoding)
+    print(serialized)
+
+
 def _run_confirmed_analysis(analysis: ProblemAnalysis):
     """按经校验的领域草稿选择本地求解器。"""
 
@@ -155,7 +170,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
             },
             "policy_analysis": policy_report.model_dump(mode="json"),
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        _print_json(payload)
         return 0
 
     if args.energy_park_q3 is not None:
@@ -167,7 +182,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
             return 2
 
         payload = result.model_dump(mode="json")
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        _print_json(payload)
         all_valid = all(
             run.solver_status == "OPTIMAL"
             and run.operation is not None
@@ -186,7 +201,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
             return 2
 
         payload = result.model_dump(mode="json")
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        _print_json(payload)
         all_valid = all(
             run.solver_status == "OPTIMAL"
             and run.operation is not None
@@ -207,7 +222,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         validation_report = validate_typical_day(dataset, result)
         payload = result.model_dump(mode="json")
         payload["validation_report"] = validation_report.model_dump(mode="json")
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        _print_json(payload)
         return 0 if validation_report.is_valid else 1
 
     if args.solve_draft is not None:
@@ -241,7 +256,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
             "confirmation": {"state": "confirmed_by_cli"},
             "modeling_run": asdict(modeling_run),
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        _print_json(payload)
         return 0 if _modeling_run_is_valid(payload["modeling_run"]) else 1
 
     if args.request is not None:
@@ -262,7 +277,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
                 "awaiting_user_review" if analysis.status == "ready" else analysis.status
             ),
         }
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        _print_json(payload)
         return 0
 
     try:
@@ -278,7 +293,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
 
     # 执行求解和独立验证，并将 dataclass 转成可序列化字典
     result = run_modeling(problem)
-    print(json.dumps(asdict(result), ensure_ascii=False, indent=2))
+    _print_json(asdict(result))
 
     # 只有找到可行排班并通过验证时，命令才以成功状态结束
     is_valid = (

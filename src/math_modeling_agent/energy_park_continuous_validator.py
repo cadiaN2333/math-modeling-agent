@@ -27,6 +27,7 @@ def validate_continuous_schedule(
         operation,
         wind_profile=wind_profile,
         pv_profile=pv_profile,
+        require_cost_sensitivity=False,
     )
     errors = list(base_report.errors)
     expected_hour_count = 24

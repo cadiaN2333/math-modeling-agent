@@ -2,6 +2,22 @@ import json
 import pytest
 
 
+def test_cli_json_output_preserves_unicode_with_gbk_console(monkeypatch) -> None:
+    from io import BytesIO, TextIOWrapper
+
+    from math_modeling_agent import cli
+
+    output_bytes = BytesIO()
+    console = TextIOWrapper(output_bytes, encoding="gbk")
+    monkeypatch.setattr(cli.sys, "stdout", console)
+
+    cli._print_json({"化学式": "H₂", "说明": "绿电成本"})
+    console.flush()
+
+    serialized = output_bytes.getvalue().decode("gbk")
+    assert json.loads(serialized) == {"化学式": "H₂", "说明": "绿电成本"}
+
+
 def empty_linear_program_draft():
     from math_modeling_agent.analysis_agent import LinearProgramDraft
 
@@ -491,6 +507,7 @@ def test_cli_energy_park_q1_outputs_balanced_results(capsys, monkeypatch) -> Non
     assert result["grid_purchase_mwh"] == pytest.approx(261)
     assert result["validation_report"]["is_valid"] is True
     assert result["source_files"] == ["附件1.xlsx", "附件2.xlsx"]
+    assert len(result["costs"]["sensitivity_analysis"]) == 11
 
 
 def test_cli_energy_park_q2_runs_all_discrete_targets(capsys, monkeypatch) -> None:
@@ -511,6 +528,10 @@ def test_cli_energy_park_q2_runs_all_discrete_targets(capsys, monkeypatch) -> No
     assert result["target_levels_tons_per_day"] == [72.0, 63.0, 54.0, 45.0, 36.0]
     assert len(result["scenario_runs"]) == 120
     assert len(result["annual_summaries"]) == 5
+    assert (
+        result["typical_runs"][0]["operation"]["costs"]["sensitivity_analysis"]
+        == []
+    )
 
 
 def test_cli_energy_park_q3_returns_continuous_and_discrete_comparison(
@@ -534,6 +555,10 @@ def test_cli_energy_park_q3_returns_continuous_and_discrete_comparison(
     assert len(result["scenario_runs"]) == 120
     assert len(result["discrete_comparison_by_target"]) == 5
     assert result["modeling_assumptions"]
+    assert (
+        result["typical_runs"][0]["operation"]["costs"]["sensitivity_analysis"]
+        == []
+    )
 
 
 def test_cli_energy_park_q5_returns_cited_policy_report(capsys, monkeypatch) -> None:

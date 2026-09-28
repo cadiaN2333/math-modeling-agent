@@ -197,6 +197,26 @@ git commit -m "增加电工杯 A 题问题一基准模型"
 
 本阶段只完成问题一。后续依次增加问题二 CP-SAT 开停调度、问题三连续功率调度、问题四储能和容量设计、问题五带来源的定性报告；不得据此宣称整道 A 题已经通过验收。
 
+## Task 7：成本参数的精确敏感性
+
+**文件：** 修改 `src/math_modeling_agent/energy_park.py`、`src/math_modeling_agent/energy_park_validator.py`、`tests/test_energy_park.py` 和 `README.md`。
+
+- [x] **步骤 1：先写敏感性测试**。断言问题一结果逐项报告风电/光伏度电成本、峰/平/谷购电价、风电/光伏上网价、ALK/PEM/合成氨运维率和合成氨资本摊销参数；每项列明参数基础值、单位、基准金额及对应参数增加 1% 时吨氨成本的精确变化。
+- [x] **步骤 2：运行并确认因结果尚无敏感性字段而失败**。
+
+```powershell
+& D:\Agent\.venv\Scripts\python.exe -m pytest tests\test_energy_park.py::test_cost_sensitivity_reports_exact_one_percent_parameter_impacts -q
+```
+
+- [x] **步骤 3：实现最小成本敏感度工件**。1% 是统一的相对扰动尺度，不作为外部市场波动预测。成本参数上调时费用为正向成本影响、上网价格增加时成本为负向影响；分别给出不含资本摊销和含合成氨资本摊销两种吨成本结果。明确保持当前运行计划、购售电量和产量不变，不把该局部成本敏感度描述成重新优化后的结果。敏感度只进入问题一基准结果，不在问题二、三的批量场景中重复输出；CLI 对终端编码无法表示的字符使用 JSON 转义，保留数据语义。
+- [x] **步骤 4：独立校验器从输入与逐时量重算所有基准金额和敏感度，并增加篡改敏感度结果的回归测试**。
+- [x] **步骤 5：运行问题一测试与全量测试；README 说明扰动口径及固定调度边界**。
+
+```powershell
+& D:\Agent\.venv\Scripts\python.exe -m pytest tests\test_energy_park.py -q
+& D:\Agent\.venv\Scripts\python.exe -m pytest -p no:cacheprovider --basetemp 'D:\Agent\.worktrees\min-cost-network-flow\.pytest-basetemp-20260929-a' -q
+```
+
 ## Task 6：自然语言草稿审阅后再求解
 
 **文件：** 修改 `src/math_modeling_agent/cli.py`、`tests/test_cli.py`、`README.md`。

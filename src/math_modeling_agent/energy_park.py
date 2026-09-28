@@ -2,7 +2,7 @@
 
 import re
 from math import isfinite
-from typing import Sequence
+from typing import Literal, Sequence
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -37,6 +37,19 @@ class GreenMetrics(BaseModel):
     renewable_export_passes: bool | None
 
 
+class CostSensitivityItem(BaseModel):
+    """描述一个成本参数变化对吨氨成本的局部影响。"""
+
+    component_id: str
+    component_name: str
+    base_parameter_value: float
+    parameter_unit: str
+    amount_type: Literal["费用", "收入"]
+    base_amount_yuan: float = Field(ge=0)
+    variable_cost_delta_yuan_per_ton_for_one_percent_increase: float
+    capex_included_cost_delta_yuan_per_ton_for_one_percent_increase: float
+
+
 class TypicalDayCosts(BaseModel):
     """保存逐项成本，避免把假设不同的成本压成一个数字。"""
 
@@ -57,6 +70,8 @@ class TypicalDayCosts(BaseModel):
     cost_including_ammonia_capex_yuan: float
     cost_including_ammonia_capex_per_ton_yuan: float
     excluded_cost_items: list[str]
+    sensitivity_assumption: str | None = None
+    sensitivity_analysis: list[CostSensitivityItem] = Field(default_factory=list)
 
 
 class TypicalDayResult(BaseModel):
@@ -104,11 +119,23 @@ def _start_hour(period: str) -> int:
 def _purchase_price_yuan_per_kwh(data: EnergyParkDataset, hour: int) -> float:
     """按附件 7 的半开区间分配峰、平、谷电价。"""
 
+    tier = _purchase_tier(hour)
+    prices = {
+        "peak": data.costs.purchase_price_peak_yuan_per_kwh,
+        "flat": data.costs.purchase_price_flat_yuan_per_kwh,
+        "valley": data.costs.purchase_price_valley_yuan_per_kwh,
+    }
+    return prices[tier]
+
+
+def _purchase_tier(hour: int) -> Literal["peak", "flat", "valley"]:
+    """返回某一时段所属的分时电价类别。"""
+
     if 10 <= hour < 15 or 18 <= hour < 21:
-        return data.costs.purchase_price_peak_yuan_per_kwh
+        return "peak"
     if 7 <= hour < 10 or 15 <= hour < 18 or 21 <= hour < 23:
-        return data.costs.purchase_price_flat_yuan_per_kwh
-    return data.costs.purchase_price_valley_yuan_per_kwh
+        return "flat"
+    return "valley"
 
 
 def _ratio(numerator: float, denominator: float) -> float | None:
@@ -119,6 +146,45 @@ def _ratio(numerator: float, denominator: float) -> float | None:
     return numerator / denominator
 
 
+def _cost_sensitivity_analysis(
+    production_tons: float,
+    components: Sequence[
+        tuple[str, str, float, str, Literal["费用", "收入"], float, bool]
+    ],
+) -> list[CostSensitivityItem]:
+    """计算各参数上调 1% 时固定调度下的精确吨成本变化。"""
+
+    sensitivity: list[CostSensitivityItem] = []
+    for (
+        component_id,
+        name,
+        parameter_value,
+        parameter_unit,
+        amount_type,
+        amount_yuan,
+        is_capex,
+    ) in components:
+        direction = -1.0 if amount_type == "收入" else 1.0
+        delta_per_ton = direction * amount_yuan * 0.01 / production_tons
+        sensitivity.append(
+            CostSensitivityItem(
+                component_id=component_id,
+                component_name=name,
+                base_parameter_value=parameter_value,
+                parameter_unit=parameter_unit,
+                amount_type=amount_type,
+                base_amount_yuan=amount_yuan,
+                variable_cost_delta_yuan_per_ton_for_one_percent_increase=(
+                    0.0 if is_capex else delta_per_ton
+                ),
+                capex_included_cost_delta_yuan_per_ton_for_one_percent_increase=(
+                    delta_per_ton
+                ),
+            )
+        )
+    return sensitivity
+
+
 def compute_energy_schedule(
     data: EnergyParkDataset,
     process_fractions: Sequence[float],
@@ -126,6 +192,7 @@ def compute_energy_schedule(
     capacity_scale: float = 1.0,
     wind_profile: HourlyProfile | None = None,
     pv_profile: HourlyProfile | None = None,
+    include_cost_sensitivity: bool = True,
 ) -> TypicalDayResult:
     """按给定的逐时运行比例和产能倍数计算功率平衡与成本。"""
 
@@ -152,6 +219,7 @@ def compute_energy_schedule(
     wind_export_mwh = 0.0
     pv_export_mwh = 0.0
     grid_purchase_cost_yuan = 0.0
+    grid_purchase_kwh_by_tier = {"peak": 0.0, "flat": 0.0, "valley": 0.0}
     alkaline_om_yuan = 0.0
     pem_om_yuan = 0.0
     ammonia_om_yuan = 0.0
@@ -185,10 +253,13 @@ def compute_energy_schedule(
             wind_export_mwh += grid_export_mw * wind_generation_mw / renewable_generation_mw
             pv_export_mwh += grid_export_mw * pv_generation_mw / renewable_generation_mw
 
-        grid_purchase_cost_yuan += (
-            grid_purchase_mw
-            * 1000
-            * _purchase_price_yuan_per_kwh(data, _start_hour(period))
+        hour = _start_hour(period)
+        purchase_tier = _purchase_tier(hour)
+        purchased_kwh = grid_purchase_mw * 1000
+        grid_purchase_kwh_by_tier[purchase_tier] += purchased_kwh
+        grid_purchase_cost_yuan += purchased_kwh * _purchase_price_yuan_per_kwh(
+            data,
+            hour,
         )
         alkaline_om_yuan += (
             parameters.alkaline_power_mw
@@ -326,6 +397,125 @@ def compute_energy_schedule(
             "附件未提供 ALKEL 与 PEM 电解槽资本投资额",
             "题目未提供输配电费、线损和税费参数",
         ],
+        sensitivity_assumption=(
+            (
+                "分别将每个成本或收入参数相对上调 1%，保持当前运行计划、购售电量及产量不变；"
+                "该敏感度是固定调度下的成本核算影响，不代表重新优化后的结果。"
+            )
+            if include_cost_sensitivity
+            else None
+        ),
+        sensitivity_analysis=(
+            _cost_sensitivity_analysis(
+                production_tons,
+                [
+                    (
+                        "wind_lcoe",
+                        "风电度电成本",
+                        costs.wind_lcoe_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        wind_generation_cost_yuan,
+                        False,
+                    ),
+                    (
+                        "pv_lcoe",
+                        "光伏度电成本",
+                        costs.pv_lcoe_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        pv_generation_cost_yuan,
+                        False,
+                    ),
+                    (
+                        "purchase_price_peak",
+                        "峰时网购电",
+                        costs.purchase_price_peak_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        grid_purchase_kwh_by_tier["peak"]
+                        * costs.purchase_price_peak_yuan_per_kwh,
+                        False,
+                    ),
+                    (
+                        "purchase_price_flat",
+                        "平时网购电",
+                        costs.purchase_price_flat_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        grid_purchase_kwh_by_tier["flat"]
+                        * costs.purchase_price_flat_yuan_per_kwh,
+                        False,
+                    ),
+                    (
+                        "purchase_price_valley",
+                        "谷时网购电",
+                        costs.purchase_price_valley_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        grid_purchase_kwh_by_tier["valley"]
+                        * costs.purchase_price_valley_yuan_per_kwh,
+                        False,
+                    ),
+                    (
+                        "wind_export_price",
+                        "风电上网收入",
+                        costs.wind_export_price_yuan_per_kwh,
+                        "元/kWh",
+                        "收入",
+                        wind_export_revenue_yuan,
+                        False,
+                    ),
+                    (
+                        "pv_export_price",
+                        "光伏上网收入",
+                        costs.pv_export_price_yuan_per_kwh,
+                        "元/kWh",
+                        "收入",
+                        pv_export_revenue_yuan,
+                        False,
+                    ),
+                    (
+                        "alkaline_om",
+                        "ALK 电解槽运维费",
+                        costs.alkaline_om_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        alkaline_om_yuan,
+                        False,
+                    ),
+                    (
+                        "pem_om",
+                        "PEM 电解槽运维费",
+                        costs.pem_om_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        pem_om_yuan,
+                        False,
+                    ),
+                    (
+                        "ammonia_om",
+                        "合成氨装置运维费",
+                        costs.ammonia_om_yuan_per_kwh,
+                        "元/kWh",
+                        "费用",
+                        ammonia_om_yuan,
+                        False,
+                    ),
+                    (
+                        "ammonia_capex",
+                        "合成氨装置资本摊销",
+                        costs.ammonia_capex_yuan_per_kg_h2,
+                        "元/(kgH₂/h)",
+                        "费用",
+                        ammonia_capex_daily_yuan,
+                        True,
+                    ),
+                ],
+            )
+            if include_cost_sensitivity
+            else []
+        ),
     )
 
     review_items = [
