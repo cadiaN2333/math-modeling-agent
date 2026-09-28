@@ -1,0 +1,25 @@
+{
+  "employees": [
+    {
+      "employee_id": "E1",
+      "name": "林晓",
+      "skills": ["急救"],
+      "max_hours": 8
+    }
+  ],
+  "shifts": [
+    {
+      "shift_id": "S1",
+      "duration_hours": 8
+    }
+  ],
+  "coverage_requirements": [
+    {
+      "shift_id": "S1",
+      "minimum_employees": 1,
+      "required_skill_counts": {
+        "急救": 1
+      }
+    }
+  ]
+}

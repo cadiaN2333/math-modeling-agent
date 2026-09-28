@@ -1,0 +1,152 @@
+{
+  "schema_version": "1.0",
+  "domains": [
+    {
+      "id": "operations_research",
+      "name": "运筹优化",
+      "problem_keywords": ["运筹学", "运筹优化", "优化", "决策", "资源分配"],
+      "goal_keywords": ["最优", "满足约束", "成本", "效率", "收益"],
+      "subdomains": [
+        {
+          "id": "scheduling_and_allocation",
+          "name": "排班与资源分配",
+          "problem_keywords": ["排班", "员工", "班次", "工时", "技能", "覆盖人数", "人员安排", "资源分配"],
+          "goal_keywords": ["可行排班", "工时上限", "覆盖", "减少排班时间", "满足人员需求"],
+          "methods": [
+            {
+              "id": "cp_sat_scheduling",
+              "name": "约束规划与 CP-SAT",
+              "aliases": ["CP-SAT", "约束规划", "布尔决策"],
+              "problem_keywords": ["排班", "班次", "技能", "最低人数", "复杂约束", "离散决策", "互斥"],
+              "goal_keywords": ["可行排班", "满足复杂规则", "减少排班时间", "覆盖全部班次"],
+              "core_idea": "用离散变量表示员工是否被分配到班次，再将人员覆盖、技能和工时要求写成约束。",
+              "use_when": ["决定是否分配某个员工或资源", "规则包含多种离散条件", "需要检查方案可行性"],
+              "assumptions": ["决策可以表示为有限个离散变量", "约束和目标能够明确写出"],
+              "limitations": ["班次起止时间和重叠约束必须提供相应数据", "模型越大求解时间可能越长"],
+              "implementation_status": "已实现",
+              "solver": "OR-Tools CP-SAT"
+            },
+            {
+              "id": "integer_programming",
+              "name": "整数规划",
+              "aliases": ["IP", "MIP", "混合整数规划"],
+              "problem_keywords": ["整数变量", "0-1变量", "线性目标", "线性约束", "容量限制"],
+              "goal_keywords": ["最小成本", "最大收益", "资源利用", "整数最优解"],
+              "core_idea": "将目标和约束表达为线性函数，并使用整数变量表示不可分割的选择。",
+              "use_when": ["资源分配可以用线性关系表示", "决策包含选择、数量或启用与否"],
+              "assumptions": ["目标与约束满足线性或可线性化条件"],
+              "limitations": ["非线性关系通常需要近似或重新建模", "大规模整数模型可能较难求解"],
+              "implementation_status": "知识候选",
+              "solver": null
+            },
+            {
+              "id": "multiobjective_optimization",
+              "name": "多目标优化",
+              "aliases": ["多目标规划", "帕累托优化"],
+              "problem_keywords": ["多个目标", "目标冲突", "公平性", "服务水平", "成本与质量"],
+              "goal_keywords": ["权衡", "公平与效率", "帕累托", "优先级"],
+              "core_idea": "分析多个相互冲突的目标，并通过优先级、权重或帕累托方案展示取舍。",
+              "use_when": ["用户同时关心成本、公平性或服务质量", "单一目标无法表达决策偏好"],
+              "assumptions": ["每个目标有可计算的评价指标", "用户能确认目标优先级或权重"],
+              "limitations": ["权重选择会影响结果", "不同目标之间通常不存在唯一的最佳方案"],
+              "implementation_status": "知识候选",
+              "solver": null
+            }
+          ]
+        },
+        {
+          "id": "matching_and_networks",
+          "name": "匹配与网络优化",
+          "problem_keywords": ["一对一", "匹配", "分配关系", "网络", "路径", "节点", "边"],
+          "goal_keywords": ["最短路径", "最小匹配成本", "最大流", "连接所有节点"],
+          "methods": [
+            {
+              "id": "bipartite_matching",
+              "name": "二分图匹配",
+              "aliases": ["指派问题", "二分匹配"],
+              "problem_keywords": ["员工和任务", "人员岗位匹配", "一对一分配", "资格匹配", "成本矩阵"],
+              "goal_keywords": ["最小分配成本", "最大匹配数", "任务指派"],
+              "core_idea": "将两类对象作为图的两个部分，用边表示可匹配关系，再寻找满足要求的匹配。",
+              "use_when": ["任务与人员分属两类集合", "每项分配有资格条件或成本"],
+              "assumptions": ["对象和允许的匹配关系可以明确列出"],
+              "limitations": ["复杂的跨时段工时和多技能规则需要扩展模型"],
+              "implementation_status": "知识候选",
+              "solver": null
+            },
+            {
+              "id": "shortest_path",
+              "name": "最短路径",
+              "aliases": ["路径规划", "最短路"],
+              "problem_keywords": ["道路网络", "图路径", "起点终点", "节点边", "旅行路线"],
+              "goal_keywords": ["最少距离", "最少时间", "最小路径成本"],
+              "core_idea": "在带权网络中寻找从起点到终点累计权重最小的路径。",
+              "use_when": ["问题可以表示为节点和连接边", "每条边具有距离、时间或成本"],
+              "assumptions": ["网络结构和边权已知"],
+              "limitations": ["多车辆、时间窗和取送货要求需要车辆路径模型"],
+              "implementation_status": "知识候选",
+              "solver": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "statistics_and_prediction",
+      "name": "统计与预测",
+      "problem_keywords": ["数据", "样本", "预测", "变量关系", "趋势"],
+      "goal_keywords": ["预测未来", "解释影响因素", "估计参数", "误差"],
+      "subdomains": [
+        {
+          "id": "regression",
+          "name": "回归分析",
+          "problem_keywords": ["因变量", "自变量", "连续结果", "变量关系", "影响因素"],
+          "goal_keywords": ["解释关系", "预测数值", "估计影响"],
+          "methods": [
+            {
+              "id": "linear_regression",
+              "name": "线性回归",
+              "aliases": ["最小二乘回归", "线性模型"],
+              "problem_keywords": ["连续变量", "线性关系", "多个影响因素", "回归系数"],
+              "goal_keywords": ["预测连续数值", "解释变量影响", "估计系数"],
+              "core_idea": "用线性函数描述输入变量与连续结果之间的关系，并根据数据估计系数。",
+              "use_when": ["结果变量为连续数值", "线性关系是可接受的近似"],
+              "assumptions": ["样本定义清晰", "模型假设与残差诊断得到检查"],
+              "limitations": ["异常值、多重共线性和非线性关系可能影响结果"],
+              "implementation_status": "知识候选",
+              "solver": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "simulation_and_uncertainty",
+      "name": "仿真与不确定性分析",
+      "problem_keywords": ["随机", "不确定性", "概率", "波动", "随机过程"],
+      "goal_keywords": ["风险范围", "概率评估", "结果区间", "情景分析"],
+      "subdomains": [
+        {
+          "id": "stochastic_simulation",
+          "name": "随机模拟",
+          "problem_keywords": ["随机输入", "不确定参数", "概率分布", "重复试验"],
+          "goal_keywords": ["估算概率", "风险评估", "结果分布", "区间估计"],
+          "methods": [
+            {
+              "id": "monte_carlo",
+              "name": "蒙特卡洛模拟",
+              "aliases": ["随机抽样模拟", "Monte Carlo"],
+              "problem_keywords": ["随机抽样", "随机变量", "概率分布", "不确定输入"],
+              "goal_keywords": ["估算发生概率", "评估风险", "模拟结果分布"],
+              "core_idea": "按输入的不确定性分布重复抽样并运行模型，以估计输出结果的分布。",
+              "use_when": ["解析解难以求得", "能够描述不确定输入的分布"],
+              "assumptions": ["输入分布和变量间依赖关系有依据"],
+              "limitations": ["结果精度受抽样次数影响", "输入分布假设可能产生偏差"],
+              "implementation_status": "知识候选",
+              "solver": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
