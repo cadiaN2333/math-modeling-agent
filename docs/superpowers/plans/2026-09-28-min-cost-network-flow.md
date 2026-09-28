@@ -199,7 +199,7 @@ class MinCostFlowProblem(BaseModel):
 
 **文件：** 新建 `src/math_modeling_agent/min_cost_flow_solver.py`、`tests/test_min_cost_flow_solver.py`
 
-- [ ] **步骤 1：先写求解器失败测试。** 使用设计文档中的四节点例子，断言状态为 `OPTIMAL`、路线流量为 W1→S1=20、W2→S1=5、W2→S2=25、W1→S2=0，且总费用为 80。再加总供给不平衡与容量不足两个用例，断言 `INFEASIBLE`、路线流量为空、总费用为 `None`。
+- [x] **步骤 1：先写求解器失败测试。** 使用设计文档中的四节点例子，断言状态为 `OPTIMAL`、路线流量为 W1→S1=20、W2→S1=5、W2→S2=25、W1→S2=0，且总费用为 80。再加总供给不平衡与容量不足两个用例，断言 `INFEASIBLE`、路线流量为空、总费用为 `None`。
 
 ```python
 def test_solver_finds_minimum_cost_warehouse_delivery() -> None:
@@ -212,7 +212,7 @@ def test_solver_finds_minimum_cost_warehouse_delivery() -> None:
     assert result.arc_flows == EXPECTED_ARC_FLOWS
     assert result.total_cost == 80
 ```
-- [ ] **步骤 2：运行新测试确认红灯。**
+- [x] **步骤 2：运行新测试确认红灯。**
 
 ```powershell
 $testTemp = Join-Path (Resolve-Path .\.venv).Path ('pytest-tmp-' + [guid]::NewGuid().ToString('N'))
@@ -222,9 +222,9 @@ New-Item -ItemType Directory -Path $testTemp | Out-Null
 
 预期：因 `min_cost_flow_solver.py` 尚不存在而失败。
 
-- [ ] **步骤 3：实现求解器。** 使用 `from ortools.graph.python import min_cost_flow`、`SimpleMinCostFlow()`、`add_arc_with_capacity_and_unit_cost()`、`set_node_supply()` 和 `solve()`。以输入节点顺序建立 node_id→index 映射，以输入边顺序保留 arc_id→solver-index 映射。只在 `OPTIMAL` 状态读取 flows 与 optimal_cost；`INFEASIBLE`、`BAD_COST_RANGE`、`BAD_CAPACITY_RANGE`、solver unavailable 和未知状态均不返回伪解。
-- [ ] **步骤 4：重跑求解器测试。** 重用步骤 2 命令；预期最优与不可行状态均正确。
-- [ ] **步骤 5：提交求解器层。** 使用中文提交说明 `实现 SimpleMinCostFlow 求解器`。
+- [x] **步骤 3：实现求解器。** 使用 `from ortools.graph.python import min_cost_flow`、`SimpleMinCostFlow()`、`add_arc_with_capacity_and_unit_cost()`、`set_node_supply()` 和 `solve()`。以输入节点顺序建立 node_id→index 映射，以输入边顺序保留 arc_id→solver-index 映射。只在 `OPTIMAL` 状态读取 flows 与 optimal_cost；`INFEASIBLE`、`BAD_COST_RANGE`、`BAD_CAPACITY_RANGE`、solver unavailable 和未知状态均不返回伪解。
+- [x] **步骤 4：重跑求解器测试。** 重用步骤 2 命令；预期最优与不可行状态均正确。
+- [x] **步骤 5：提交求解器层。** 使用中文提交说明 `实现 SimpleMinCostFlow 求解器`。
 
 ## 任务三：独立网络流 validator
 
