@@ -36,7 +36,7 @@
 
 ## 任务一：求解器中立 IR
 
-- [ ] **步骤 1：写 IR 红灯测试。** 测试合法线性 IR 与网络流 IR；拒绝重复变量/约束编号、表达式引用未声明变量、非有限系数、上下界倒置、未知字段和不支持的 schema 版本。
+- [x] **步骤 1：写 IR 红灯测试。** 测试合法线性 IR 与网络流 IR；拒绝重复变量/约束编号、表达式引用未声明变量、非有限系数、上下界倒置、未知字段和不支持的 schema 版本。
 
 ```python
 from typing import Annotated, Literal
@@ -83,7 +83,7 @@ def test_ir_rejects_unknown_variable_reference() -> None:
         OptimizationIR.model_validate(make_ir_with_unknown_variable())
 ```
 
-- [ ] **步骤 2：运行红灯。**
+- [x] **步骤 2：运行红灯。**
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_ir.py -q
@@ -91,7 +91,7 @@ def test_ir_rejects_unknown_variable_reference() -> None:
 
 预期：因 `optimization_ir.py` 和 IR 类型尚不存在而失败。
 
-- [ ] **步骤 3：实现 IR 契约。** 线性 formulation 表达连续/整数/二进制变量、上下界、单位、仿射目标和 `<=`、`>=`、`==` 约束；网络流 formulation 保留节点、供需、弧容量、弧费用和流量单位。IR 顶层记录 schema 版本、问题族、证据引用与待确认假设，不包含 OR-Tools 对象或可执行代码。
+- [x] **步骤 3：实现 IR 契约。** 线性 formulation 表达连续/整数/二进制变量、上下界、单位、仿射目标和 `<=`、`>=`、`==` 约束；网络流 formulation 保留节点、供需、弧容量、弧费用和流量单位。IR 顶层记录 schema 版本、问题族、证据引用与待确认假设，不包含 OR-Tools 对象或可执行代码。
 
 ```python
 class IRVariable(BaseModel):
@@ -119,6 +119,7 @@ class IRAffineExpression(BaseModel):
 class IRObjective(BaseModel):
     direction: Literal["minimize", "maximize"]
     expression: IRAffineExpression
+    unit: str
 
 
 class IRConstraint(BaseModel):
@@ -126,6 +127,7 @@ class IRConstraint(BaseModel):
     expression: IRAffineExpression
     relation: Literal["<=", ">=", "=="]
     rhs: float
+    constant: float = 0
     unit: str
     source_fact_ids: list[str] = Field(default_factory=list)
 
@@ -138,7 +140,7 @@ class LinearFormulationIR(BaseModel):
 
 
 class NetworkFlowFormulationIR(BaseModel):
-    kind: Literal["minimum_cost_flow"]
+    kind: Literal["network_flow"]
     nodes: list[FlowNode]
     arcs: list[FlowArc]
     flow_unit: str
@@ -154,7 +156,7 @@ class EvidenceReference(BaseModel):
 class ModelAssumption(BaseModel):
     assumption_id: str
     statement: str
-    source_ids: list[str] = Field(default_factory=list)
+    source_fact_ids: list[str] = Field(default_factory=list)
 
 
 class OptimizationIR(BaseModel):
@@ -175,7 +177,7 @@ class OptimizationIR(BaseModel):
     assumptions: list[ModelAssumption] = Field(default_factory=list)
 ```
 
-- [ ] **步骤 4：复跑 IR 测试并增加 JSON 往返测试。**
+- [x] **步骤 4：复跑 IR 测试并增加 JSON 往返测试。**
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_ir.py -q
@@ -580,3 +582,9 @@ $env:PYTHONPATH = 'D:\Agent\.worktrees\min-cost-network-flow\src'
 
 - [ ] **步骤 3：检查 README、`pyproject.toml` optional extras、知识清单和确认流程说明。** 更新能力边界，不声称支持非线性/随机模型。
 - [ ] **步骤 4：分阶段用中文提交并普通推送到 `origin/feature/min-cost-network-flow`。** 不使用强推，不合并到 main；最后确认工作树干净且本地分支与远端一致。
+
+## 执行记录
+
+- [x] 任务一 IR 模型与测试已提交：`8f66390`；定向测试 29 项通过。
+- [x] 代码复核发现二进制变量单边界越界问题，已补回归测试并修复：`78ad84a`；定向测试 31 项通过。
+- [x] IR 规格复核六项全部通过；边界修复的代码质量复核通过。
