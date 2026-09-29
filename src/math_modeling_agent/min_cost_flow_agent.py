@@ -2,12 +2,17 @@
 
 from dataclasses import dataclass
 
-from .min_cost_flow_solver import MinCostFlowResult, solve_min_cost_flow
+from .min_cost_flow_solver import MinCostFlowResult
 from .min_cost_flow_validator import (
     MinCostFlowValidationReport,
     validate_min_cost_flow_solution,
 )
 from .models import MinCostFlowProblem
+from .optimization_compilers import (
+    compile_min_cost_flow_problem,
+    decode_flow_solution,
+)
+from .optimization_registry import SolverRegistry
 from .retriever import HMMLRetriever, MethodRecommendation
 
 
@@ -42,7 +47,31 @@ def run_min_cost_flow_modeling(
         problem_description=_describe_min_cost_flow_problem(problem),
         desired_outcome="满足全部节点供需，并最小化所有运输路线的总费用。",
     )
-    solver_result = solve_min_cost_flow(problem)
+    # 网络语义直接保留在 IR，再由专用 SimpleMinCostFlow 后端求解。
+    ir = compile_min_cost_flow_problem(problem, problem_id="flow-run")
+    backend = SolverRegistry().select(ir)
+    if backend is None:
+        solver_result = MinCostFlowResult(
+            status="UNSUPPORTED_MODEL",
+            arc_flows={},
+            total_cost=None,
+        )
+    else:
+        ir_result = backend.solve(ir)
+        if ir_result.status == "OPTIMAL" and isinstance(
+            ir_result.objective_value,
+            int,
+        ):
+            arc_flows = decode_flow_solution(problem, ir_result.variable_values)
+            total_cost = ir_result.objective_value
+        else:
+            arc_flows = {}
+            total_cost = None
+        solver_result = MinCostFlowResult(
+            status=ir_result.status,
+            arc_flows=arc_flows,
+            total_cost=total_cost,
+        )
 
     if solver_result.status != "OPTIMAL":
         return MinCostFlowModelingRun(

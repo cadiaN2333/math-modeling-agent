@@ -9,10 +9,7 @@ from pydantic import ValidationError
 
 from .analysis_agent import (
     analyze_problem,
-    to_linear_program_problem,
-    to_minimum_cost_flow_problem,
     retrieve_methods_for_subtasks,
-    to_scheduling_problem,
     ProblemAnalysis,
 )
 from .agent import run_modeling
@@ -22,8 +19,7 @@ from .energy_park_discrete import run_discrete_question_two
 from .energy_park_io import load_energy_park_directory
 from .energy_park_policy import build_energy_park_policy_report
 from .energy_park_validator import validate_typical_day
-from .linear_agent import run_linear_modeling
-from .min_cost_flow_agent import run_min_cost_flow_modeling
+from .modeling_service import ModelingReport, ModelingService
 from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
 from .scenario_analysis import run_scenario_analysis
@@ -57,20 +53,47 @@ def _print_json(payload: object) -> None:
     print(serialized)
 
 
-def _run_confirmed_analysis(analysis: ProblemAnalysis):
-    """按经校验的领域草稿选择本地求解器。"""
+def _modeling_run_from_report(report: ModelingReport) -> dict[str, object]:
+    """将统一报告转回兼容旧 CLI 的领域结果字段。"""
 
-    if analysis.status != "ready":
-        raise ValueError("只有 ready 状态的结构化草稿可以进入求解")
-    if analysis.problem_family == "employee_scheduling":
-        return run_modeling(to_scheduling_problem(analysis))
-    if analysis.problem_family == "linear_programming":
-        return run_linear_modeling(to_linear_program_problem(analysis))
-    if analysis.problem_family == "minimum_cost_flow":
-        return run_min_cost_flow_modeling(
-            to_minimum_cost_flow_problem(analysis)
-        )
-    raise ValueError("当前问题领域没有已实现的求解适配器")
+    if report.problem_family == "employee_scheduling":
+        solver_result = {
+            "status": report.solver_status,
+            "assignments": report.result.get("assignments", []),
+            "objective_minutes": report.result.get("objective_minutes"),
+        }
+    elif report.problem_family == "linear_programming":
+        solver_name = {
+            "ortools_glop": "GLOP",
+            "ortools_scip": "SCIP",
+            "ortools_cp_sat": "CP-SAT",
+        }.get(report.backend_id, report.backend_id)
+        solver_result = {
+            "status": report.solver_status,
+            "objective_value": report.objective_value,
+            "variable_values": report.result.get("variable_values", {}),
+            "solver_name": solver_name,
+        }
+    else:
+        solver_result = {
+            "status": report.solver_status,
+            "arc_flows": report.result.get("arc_flows", {}),
+            "total_cost": report.result.get("total_cost"),
+        }
+
+    validation_report = None
+    if report.is_valid is not None:
+        validation_report = {
+            "is_valid": report.is_valid,
+            "errors": report.validation_errors,
+        }
+    return {
+        "solver_result": solver_result,
+        "validation_report": validation_report,
+        "method_recommendations": [],
+        "backend_id": report.backend_id,
+        "ir_schema_version": "1",
+    }
 
 
 def _modeling_run_is_valid(modeling_run_data: dict) -> bool:
@@ -303,28 +326,63 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
                 document.get("analysis"), dict
             ):
                 raise ValueError("草稿文件必须包含 analysis JSON 对象")
+            reviewed_hash = document.get("draft_hash")
+            if not isinstance(reviewed_hash, str) or not reviewed_hash:
+                raise ValueError("草稿文件必须包含生成时输出的 draft_hash")
             analysis = ProblemAnalysis.model_validate(document["analysis"])
-            modeling_run = _run_confirmed_analysis(analysis)
-        except (ValidationError, ValueError) as exc:
+            service = ModelingService()
+            session = service.create_draft_from_analysis(analysis)
+            if session.draft_hash != reviewed_hash:
+                raise ValueError("草稿摘要不匹配：内容在用户审阅后发生变化")
+            validation = service.validate_draft(
+                session.session_id,
+                reviewed_hash,
+            )
+            if not validation.valid:
+                raise ValueError("；".join(validation.errors))
+            token = service.confirm_draft(
+                session.session_id,
+                validation.draft_hash,
+            )
+            report = service.solve_confirmed(token)
+            if report.solver_status in {"OPTIMAL", "FEASIBLE"}:
+                report = service.verify_result(session.session_id)
+            modeling_run = _modeling_run_from_report(report)
+            recommendations = retrieve_methods_for_subtasks(analysis)
+            modeling_run["method_recommendations"] = [
+                asdict(item)
+                for items in recommendations.values()
+                for item in items
+            ]
+        except (ValidationError, RuntimeError, ValueError) as exc:
             print(f"已审阅草稿校验失败：{exc}", file=sys.stderr)
             return 2
-
-        recommendations = retrieve_methods_for_subtasks(analysis)
         payload = {
             "analysis": analysis.model_dump(mode="json"),
+            "draft_hash": session.draft_hash,
             "method_recommendations": {
                 task_id: [asdict(item) for item in items]
                 for task_id, items in recommendations.items()
             },
-            "confirmation": {"state": "confirmed_by_cli"},
-            "modeling_run": asdict(modeling_run),
+            "confirmation": {
+                "state": "confirmed_by_cli",
+                "draft_hash": validation.draft_hash,
+            },
+            "modeling_run": modeling_run,
         }
         _print_json(payload)
         return 0 if _modeling_run_is_valid(payload["modeling_run"]) else 1
 
     if args.request is not None:
         try:
-            analysis = analyze_problem(args.request, client=llm_client)
+            service = ModelingService(
+                analyzer=lambda request: analyze_problem(
+                    request,
+                    client=llm_client,
+                )
+            )
+            session = service.create_draft(args.request)
+            analysis = session.analysis
         except (RuntimeError, ValueError) as exc:
             print(f"自然语言分析失败：{exc}", file=sys.stderr)
             return 2
@@ -332,6 +390,7 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         recommendations = retrieve_methods_for_subtasks(analysis)
         payload = {
             "analysis": analysis.model_dump(mode="json"),
+            "draft_hash": session.draft_hash,
             "method_recommendations": {
                 task_id: [asdict(item) for item in items]
                 for task_id, items in recommendations.items()

@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass
 
-from .linear_solver import LinearSolverResult, solve_linear_program
+from .linear_solver import LinearSolverResult
 from .linear_validator import LinearValidationReport, validate_linear_solution
 from .models import LinearProgramProblem
+from .optimization_compilers import compile_linear_problem
+from .optimization_registry import SolverRegistry
 from .retriever import HMMLRetriever, MethodRecommendation
 
 
@@ -65,7 +67,29 @@ def run_linear_modeling(problem: LinearProgramProblem) -> LinearModelingRun:
         required_method_id=required_method_id,
     )
     method_recommendations = retrieved_methods
-    solver_result = solve_linear_program(problem)
+    # 线性模型统一编译到 IR，再由注册表选 GLOP 或 SCIP。
+    ir = compile_linear_problem(problem, problem_id="linear-run")
+    backend = SolverRegistry().select(ir)
+    if backend is None:
+        solver_result = LinearSolverResult(
+            status="UNSUPPORTED_MODEL",
+            objective_value=None,
+            variable_values={},
+            solver_name="none",
+        )
+    else:
+        ir_result = backend.solve(ir)
+        solver_name = {
+            "ortools_glop": "GLOP",
+            "ortools_scip": "SCIP",
+            "ortools_cp_sat": "CP-SAT",
+        }.get(backend.backend_id, backend.backend_id)
+        solver_result = LinearSolverResult(
+            status=ir_result.status,
+            objective_value=ir_result.objective_value,
+            variable_values=dict(ir_result.variable_values),
+            solver_name=solver_name,
+        )
 
     if solver_result.status not in {"OPTIMAL", "FEASIBLE"}:
         return LinearModelingRun(

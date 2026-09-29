@@ -140,6 +140,7 @@ def test_cli_request_returns_clarifying_questions(capsys) -> None:
     assert exit_code == 0
     assert result["analysis"]["status"] == "needs_clarification"
     assert result["analysis"]["clarifying_questions"] == ["有多少名员工？"]
+    assert len(result["draft_hash"]) == 64
     assert result["method_recommendations"] == {}
 
 
@@ -219,10 +220,10 @@ def test_cli_ready_request_returns_draft_without_solving(capsys, monkeypatch) ->
             return SimpleNamespace(output_parsed=analysis)
 
     client = SimpleNamespace(responses=FakeResponses())
-    def fail_if_solver_runs(_problem):
+    def fail_if_solver_runs(*_arguments):
         pytest.fail("自然语言请求默认只返回草稿，不应自动求解")
 
-    monkeypatch.setattr(cli, "run_modeling", fail_if_solver_runs)
+    monkeypatch.setattr(cli.ModelingService, "solve_confirmed", fail_if_solver_runs)
     exit_code = cli.main(
         ["--request", "林晓上急救班，陈立上普通班。"],
         llm_client=client,
@@ -231,19 +232,24 @@ def test_cli_ready_request_returns_draft_without_solving(capsys, monkeypatch) ->
 
     assert exit_code == 0
     assert result["analysis"]["status"] == "ready"
+    assert len(result["draft_hash"]) == 64
     assert "modeling_run" not in result
 
 
 def test_cli_solve_confirmed_draft_runs_local_solver(capsys, tmp_path) -> None:
     from math_modeling_agent.cli import main
+    from math_modeling_agent.modeling_service import ModelingService
     from min_cost_flow_fixtures import make_ready_analysis
 
+    analysis = make_ready_analysis()
+    draft_hash = ModelingService().create_draft_from_analysis(analysis).draft_hash
     draft_path = tmp_path / "confirmed-draft.json"
     draft_path.write_text(
         json.dumps(
             {
-                "analysis": make_ready_analysis().model_dump(mode="json"),
+                "analysis": analysis.model_dump(mode="json"),
                 "method_recommendations": {},
+                "draft_hash": draft_hash,
             },
             ensure_ascii=False,
         ),
@@ -256,6 +262,9 @@ def test_cli_solve_confirmed_draft_runs_local_solver(capsys, tmp_path) -> None:
     assert exit_code == 0
     assert result["modeling_run"]["solver_result"]["status"] == "OPTIMAL"
     assert result["modeling_run"]["validation_report"]["is_valid"] is True
+    assert result["confirmation"]["state"] == "confirmed_by_cli"
+    assert result["modeling_run"]["ir_schema_version"] == "1"
+    assert result["modeling_run"]["backend_id"] == "ortools_simple_min_cost_flow"
 
 
 def test_cli_solve_confirmed_integer_linear_draft_uses_scip(capsys, tmp_path) -> None:
@@ -269,6 +278,7 @@ def test_cli_solve_confirmed_integer_linear_draft_uses_scip(capsys, tmp_path) ->
         SchedulingDraft,
     )
     from math_modeling_agent import cli
+    from math_modeling_agent.modeling_service import ModelingService
 
     analysis = ProblemAnalysis(
         status="ready",
@@ -316,8 +326,12 @@ def test_cli_solve_confirmed_integer_linear_draft_uses_scip(capsys, tmp_path) ->
         minimum_cost_flow_draft=empty_min_cost_flow_draft(),
     )
     draft_path = tmp_path / "integer-draft.json"
+    draft_hash = ModelingService().create_draft_from_analysis(analysis).draft_hash
     draft_path.write_text(
-        json.dumps({"analysis": analysis.model_dump(mode="json")}, ensure_ascii=False),
+        json.dumps(
+            {"analysis": analysis.model_dump(mode="json"), "draft_hash": draft_hash},
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
 
@@ -537,6 +551,36 @@ def test_cli_solve_confirmed_draft_rejects_malformed_json(capsys, tmp_path) -> N
     assert captured.out == ""
 
 
+def test_cli_rejects_draft_changed_after_user_review(capsys, tmp_path, monkeypatch) -> None:
+    from math_modeling_agent import cli
+    from math_modeling_agent.modeling_service import ModelingService
+    from min_cost_flow_fixtures import make_ready_analysis
+
+    analysis = make_ready_analysis()
+    reviewed_hash = ModelingService().create_draft_from_analysis(analysis).draft_hash
+    changed_analysis = analysis.model_dump(mode="json")
+    changed_analysis["summary"] += "（已被修改）"
+    draft_path = tmp_path / "changed-after-review.json"
+    draft_path.write_text(
+        json.dumps(
+            {"analysis": changed_analysis, "draft_hash": reviewed_hash},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    def fail_if_solver_runs(*_arguments):
+        pytest.fail("摘要不匹配的草稿不得调用求解器")
+
+    monkeypatch.setattr(cli.ModelingService, "solve_confirmed", fail_if_solver_runs)
+    exit_code = cli.main(["--solve-draft", str(draft_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "摘要" in captured.err
+    assert captured.out == ""
+
+
 def test_cli_ready_linear_program_request_returns_draft_without_solving(capsys, monkeypatch) -> None:
     import pytest
     from types import SimpleNamespace
@@ -624,10 +668,10 @@ def test_cli_ready_linear_program_request_returns_draft_without_solving(capsys, 
         def parse(self, **arguments):
             return SimpleNamespace(output_parsed=analysis)
 
-    def fail_if_solver_runs(_problem):
+    def fail_if_solver_runs(*_arguments):
         pytest.fail("自然语言请求默认只返回 LP 草稿，不应自动求解")
 
-    monkeypatch.setattr(cli, "run_linear_modeling", fail_if_solver_runs)
+    monkeypatch.setattr(cli.ModelingService, "solve_confirmed", fail_if_solver_runs)
     exit_code = cli.main(
         ["--request", "生产A、B两种产品，求利润最大化。"],
         llm_client=SimpleNamespace(responses=FakeResponses()),
@@ -709,10 +753,10 @@ def test_cli_integer_draft_recommends_scip_before_user_confirmation(
         def parse(self, **arguments):
             return SimpleNamespace(output_parsed=analysis)
 
-    def fail_if_solver_runs(_problem):
+    def fail_if_solver_runs(*_arguments):
         pytest.fail("--request 只生成草稿，不应启动求解器")
 
-    monkeypatch.setattr(cli, "run_linear_modeling", fail_if_solver_runs)
+    monkeypatch.setattr(cli.ModelingService, "solve_confirmed", fail_if_solver_runs)
     exit_code = cli.main(
         ["--request", "整数产品x，最大化产量，约束2x不超过5。"],
         llm_client=SimpleNamespace(responses=FakeResponses()),
@@ -739,10 +783,10 @@ def test_cli_ready_min_cost_flow_request_returns_draft_without_solving(capsys, m
         def parse(self, **arguments):
             return SimpleNamespace(output_parsed=analysis)
 
-    def fail_if_solver_runs(_problem):
+    def fail_if_solver_runs(*_arguments):
         pytest.fail("自然语言请求默认只返回网络流草稿，不应自动求解")
 
-    monkeypatch.setattr(cli, "run_min_cost_flow_modeling", fail_if_solver_runs)
+    monkeypatch.setattr(cli.ModelingService, "solve_confirmed", fail_if_solver_runs)
     exit_code = cli.main(
         ["--request", "以最低费用将两仓货物送至两家门店。"],
         llm_client=SimpleNamespace(responses=FakeResponses()),
@@ -781,10 +825,10 @@ def test_cli_does_not_solve_nonready_min_cost_flow_request(capsys, monkeypatch) 
             analysis_data["unsupported_reasons"] = ["当前版本不支持多商品流。"]
         analysis = ProblemAnalysis.model_validate(analysis_data)
 
-        def fail_if_called(problem):
+        def fail_if_called(*_arguments):
             pytest.fail("非 ready 网络流问题不得启动求解器")
 
-        monkeypatch.setattr(cli, "run_min_cost_flow_modeling", fail_if_called)
+        monkeypatch.setattr(cli.ModelingService, "solve_confirmed", fail_if_called)
 
         class FakeResponses:
             def parse(self, **arguments):

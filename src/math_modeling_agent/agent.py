@@ -3,8 +3,13 @@
 from dataclasses import dataclass
 
 from .models import SchedulingProblem
+from .optimization_compilers import (
+    compile_scheduling_problem,
+    decode_schedule_solution,
+)
+from .optimization_registry import SolverRegistry
 from .retriever import HMMLRetriever, MethodRecommendation
-from .solver import SolverResult, solve_schedule
+from .solver import SolverResult
 from .validator import ValidationReport, validate_solution
 
 
@@ -53,8 +58,35 @@ def run_modeling(problem: SchedulingProblem) -> ModelingRun:
         ),
     )
 
-    # 计算阶段仍使用项目当前实现的 OR-Tools 求解器
-    solver_result = solve_schedule(problem)
+    # 先将领域排班模型编译成统一 IR，再按能力注册表选择后端。
+    ir = compile_scheduling_problem(problem, problem_id="schedule-run")
+    backend = SolverRegistry().select(ir)
+    if backend is None:
+        solver_result = SolverResult(
+            status="UNSUPPORTED_MODEL",
+            assignments=[],
+            objective_minutes=None,
+        )
+    else:
+        ir_result = backend.solve(ir)
+        if ir_result.status in {"OPTIMAL", "FEASIBLE"}:
+            assignments = decode_schedule_solution(
+                problem,
+                ir_result.variable_values,
+            )
+            objective_minutes = (
+                int(round(ir_result.objective_value))
+                if ir_result.objective_value is not None
+                else None
+            )
+        else:
+            assignments = []
+            objective_minutes = None
+        solver_result = SolverResult(
+            status=ir_result.status,
+            assignments=assignments,
+            objective_minutes=objective_minutes,
+        )
 
     # 无解或求解未完成时，不对不存在的排班做验证
     if solver_result.status not in {"OPTIMAL", "FEASIBLE"}:

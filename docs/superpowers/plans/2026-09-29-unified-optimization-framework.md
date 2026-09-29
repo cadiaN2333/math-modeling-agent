@@ -297,8 +297,8 @@ class SolverBackend(Protocol):
 
 ## 任务四：公共 ModelingService 与旧领域迁移
 
-- [ ] **步骤 1：写服务状态红灯测试。** 测试 `draft -> validated -> confirmed -> solved -> verified` 顺序；未确认、确认摘要过期、IR 编译失败和 solver 不支持时都不得进入求解。
-- [ ] **步骤 2：运行服务红灯。**
+- [x] **步骤 1：写服务状态红灯测试。** 测试 `draft -> validated -> confirmed -> solved -> verified` 顺序；未确认、确认摘要过期、IR 编译失败和 solver 不支持时都不得进入求解。
+- [x] **步骤 2：运行服务红灯。** 服务实现前 7 项测试因模块不存在而失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_modeling_service.py -q
@@ -324,6 +324,7 @@ class ConfirmationToken(BaseModel):
     session_id: str
     draft_hash: str
     confirmed_at: str
+    nonce: str
 
 
 class ModelingSession(BaseModel):
@@ -343,27 +344,27 @@ class ModelingReport(BaseModel):
     evidence: list[EvidenceIR]
 
 
-class ModelingService(Protocol):
+class ModelingService:
     def create_draft(self, request: str) -> ModelingSession: ...
     def validate_draft(self, session_id: str, draft_hash: str) -> DraftValidation: ...
     def confirm_draft(self, session_id: str, draft_hash: str) -> ConfirmationToken: ...
     def solve_confirmed(self, token: ConfirmationToken) -> ModelingReport: ...
 ```
 
-`ModelingSession.analysis` 保存现有 `ProblemAnalysis`；`ir` 是由领域编译器得到的规范模型。`ConfirmationToken` 由服务端按 `session_id + draft_hash` 生成和校验，不能由 LLM 工具参数自行构造。
-- [ ] **步骤 4：实现服务并运行绿灯。** 同一服务测试通过，重点确认未确认和过期摘要没有触发 solver。
-- [ ] **步骤 5：把排班、LP/MILP、网络流 agent 迁移到编译器和注册表。** 保留 HMML 方法建议及各领域独立 validator；映射后的输出仍保留现有 JSON 字段，另增加 IR 版本和后端信息。原有排班 `--input` 格式保持兼容。
-- [ ] **步骤 6：为 CLI/Evals 迁移写失败测试。** `--request` 只返回待审阅草稿；`--solve-draft` 处理经审阅的排班/LP/网络流草稿；未确认草稿不得求解；现有排班 `--input` JSON 仍有效。
-- [ ] **步骤 7：运行 CLI/Evals 红灯。**
+`ModelingSession.analysis` 保存现有 `ProblemAnalysis`；`ir` 是由领域编译器得到的规范模型。服务在内存中保存会话状态，返回对象为深拷贝；`ConfirmationToken` 附带服务端随机 nonce 并一次性使用，不能作为 LangChain 工具输入。CLI `--request` 输出稳定 `draft_hash`，`--solve-draft` 要求文件携带相同摘要。
+- [x] **步骤 4：实现服务并运行绿灯。** 7 项服务测试通过，重点确认未确认、错误 token、已用 token 和过期摘要都没有触发 solver。
+- [x] **步骤 5：把排班、LP/MILP、网络流 agent 迁移到编译器和注册表。** 保留 HMML 方法建议及各领域独立 validator；CLI 保留旧 JSON 结果关键字段并增加 IR 版本/后端信息，旧排班 `--input` 格式保持兼容。
+- [x] **步骤 6：为 CLI/Evals 迁移写失败测试。** 覆盖 `--request` 只返回草稿、审阅摘要被改后拒绝求解以及旧结构化输入仍有效。
+- [x] **步骤 7：运行 CLI/Evals 红灯。** 摘要篡改测试在实现哈希比对前失败，并实际进入了 solver 调用点。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_cli.py tests\test_evals.py -q
 ```
 
-预期：现有 CLI 尚未通过 `ModelingService` 路由新编译器。
-- [ ] **步骤 8：实现 CLI/Evals 公共服务调用。** `--solve-draft` 先生成并验证当前草稿摘要，再调用确认服务；`--preview` 本期不实现。
-- [ ] **步骤 9：运行 CLI/Evals 绿灯并比较旧结果。** 排班指派、LP 最优值、网络流弧流/总费用需与迁移前一致，且原领域 validator 全部通过。
-- [ ] **步骤 10：运行服务与 CLI 定向测试。**
+预期：现有 CLI 尚未通过 `ModelingService` 路由新编译器。当前已完成：CLI `--request` 经服务创建草稿；`--solve-draft` 比较草稿摘要、校验 IR、签发一次性令牌并求解。三个旧领域 Python agent 均迁移到 IR 注册表并保留独立 validator。在线 Evals 为了单独评估领域 adapter，仍调用这些已迁移的公开 agent 包装函数；离线 Evals 不调用服务、求解器或 API。
+- [x] **步骤 8：实现 CLI 服务调用。** `--solve-draft` 只接受 `--request` 输出且哈希未变化的草稿，再通过确认服务求解；`--preview` 本期不实现。
+- [x] **步骤 9：运行 CLI/Evals 绿灯并比较旧结果。** agent、CLI 与领域测试通过；离线 Evals 报告 12 个案例数据文件有效且 `api_calls=0`。
+- [x] **步骤 10：运行服务与 CLI 定向测试。** 当前服务/CLI/agent 定向测试 `34 passed`，全库 `223 passed`。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_modeling_service.py tests\test_cli.py tests\test_evals.py -q
