@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scope": "员工排班、连续单目标线性规划和整数单商品最小费用网络流；其他网络流仍测试能力边界",
+  "scope": "员工排班、连续/混合整数单目标线性规划和整数单商品最小费用网络流；其他网络流仍测试能力边界",
   "cases": [
     {
       "id": "clarify_missing_employee_max_hours",
@@ -164,6 +164,36 @@
       "expected_solver_statuses": ["INFEASIBLE"],
       "expected_method_id": "continuous_linear_programming",
       "expected_validation": "not_run"
+    },
+    {
+      "id": "mixed_integer_linear_programming_integer_product",
+      "family": "linear_programming",
+      "request": "单一产品x的产量按件计，必须是非负整数，目标是最大化产量；容量约束为2x不超过5。请建立模型并求解。",
+      "expected_analysis_status": "ready",
+      "expected_model": {
+        "variables": [{"name": "x", "unit": "件", "domain": "integer"}],
+        "objective_direction": "maximize",
+        "objective_terms": [{"variable": "x", "coefficient": 1.0}],
+        "constraints": [
+          {
+            "constraint_id": "capacity",
+            "terms": [{"variable": "x", "coefficient": 2.0}],
+            "relation": "<=",
+            "rhs": 5.0
+          },
+          {
+            "constraint_id": "nonnegative",
+            "terms": [{"variable": "x", "coefficient": 1.0}],
+            "relation": ">=",
+            "rhs": 0.0
+          }
+        ]
+      },
+      "expected_solver_statuses": ["OPTIMAL"],
+      "expected_method_id": "integer_programming",
+      "expected_validation": "valid",
+      "expected_variable_values": {"x": 2.0},
+      "expected_objective_value": 2.0
     },
     {
       "id": "minimum_cost_flow_warehouse_delivery",

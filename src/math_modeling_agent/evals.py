@@ -177,10 +177,12 @@ def _normalize_linear_program_draft(draft: Any) -> Any:
         return draft
 
     normalized = dict(draft)
-    normalized["variables"] = sorted(
-        (dict(variable) for variable in draft.get("variables", [])),
-        key=lambda item: item.get("name", ""),
-    )
+    variables = []
+    for variable in draft.get("variables", []):
+        item = dict(variable)
+        item.setdefault("domain", "continuous")
+        variables.append(item)
+    normalized["variables"] = sorted(variables, key=lambda item: item.get("name", ""))
 
     def normalize_terms(terms: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(
@@ -510,7 +512,7 @@ def _build_report(
 
     return {
         "mode": "live",
-        "scope": "员工排班、连续单目标线性规划与整数最小费用网络流；不代表通用数学建模能力",
+        "scope": "员工排班、连续/混合整数单目标线性规划与整数最小费用网络流；不代表通用数学建模能力",
         "api_calls": count,
         "case_count": count,
         "passed_count": passed_count,
@@ -565,7 +567,7 @@ def main(
             json.dumps(
                 {
                     "mode": "offline_validation",
-                    "scope": "员工排班、连续单目标线性规划与整数最小费用网络流；不代表通用数学建模能力",
+                    "scope": "员工排班、连续/混合整数单目标线性规划与整数最小费用网络流；不代表通用数学建模能力",
                     "case_count": len(cases),
                     "api_calls": 0,
                     "message": "案例文件有效；未调用 DeepSeek。传入 --live 才执行在线评测。",

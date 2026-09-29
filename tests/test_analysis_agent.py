@@ -28,7 +28,7 @@ def test_problem_analysis_schema_avoids_anyof_for_deepseek() -> None:
 def test_analysis_instructions_describe_all_supported_domains_and_boundaries() -> None:
     from math_modeling_agent.analysis_agent import ANALYSIS_INSTRUCTIONS
 
-    assert "员工排班、连续单目标线性规划" in ANALYSIS_INSTRUCTIONS
+    assert "员工排班、连续/混合整数单目标线性规划" in ANALYSIS_INSTRUCTIONS
     assert "单商品最小费用网络流" in ANALYSIS_INSTRUCTIONS
     assert "多商品流" in ANALYSIS_INSTRUCTIONS
     assert "unsupported" in ANALYSIS_INSTRUCTIONS
@@ -37,10 +37,33 @@ def test_analysis_instructions_describe_all_supported_domains_and_boundaries() -
 def test_analysis_instructions_limit_lp_to_continuous_single_objective() -> None:
     from math_modeling_agent.analysis_agent import ANALYSIS_INSTRUCTIONS
 
-    assert "连续变量" in ANALYSIS_INSTRUCTIONS
+    assert "连续、整数和二进制变量" in ANALYSIS_INSTRUCTIONS
     assert "单目标" in ANALYSIS_INSTRUCTIONS
-    assert "LP 整数/二进制变量" in ANALYSIS_INSTRUCTIONS
+    assert "整数变量" in ANALYSIS_INSTRUCTIONS
     assert "非线性" in ANALYSIS_INSTRUCTIONS
+
+
+def test_linear_variable_domain_is_required_and_enum_limited_in_schema() -> None:
+    from math_modeling_agent.analysis_agent import ProblemAnalysis
+
+    schema = ProblemAnalysis.model_json_schema()
+    variable_schema = schema["$defs"]["LinearVariableDraft"]
+
+    assert "anyOf" not in json.dumps(schema)
+    assert variable_schema["properties"]["domain"]["enum"] == [
+        "continuous",
+        "integer",
+        "binary",
+    ]
+    assert "domain" in variable_schema["required"]
+
+
+def test_linear_variable_draft_treats_legacy_missing_domain_as_continuous() -> None:
+    from math_modeling_agent.analysis_agent import LinearVariableDraft
+
+    variable = LinearVariableDraft.model_validate({"name": "x", "unit": "件"})
+
+    assert variable.domain == "continuous"
 
 
 def test_problem_analysis_schema_includes_fixed_min_cost_flow_draft() -> None:
@@ -570,8 +593,8 @@ def test_ready_linear_program_analysis_converts_to_internal_problem() -> None:
         ),
         linear_program_draft=LinearProgramDraft(
             variables=[
-                LinearVariableDraft(name="A", unit="件"),
-                LinearVariableDraft(name="B", unit="件"),
+                LinearVariableDraft(name="A", unit="件", domain="integer"),
+                LinearVariableDraft(name="B", unit="件", domain="continuous"),
             ],
             objective_direction="maximize",
             objective_terms=[
@@ -617,6 +640,10 @@ def test_ready_linear_program_analysis_converts_to_internal_problem() -> None:
     problem = to_linear_program_problem(analysis)
 
     assert [variable.name for variable in problem.variables] == ["A", "B"]
+    assert [variable.domain for variable in problem.variables] == [
+        "integer",
+        "continuous",
+    ]
     assert problem.objective.direction == "maximize"
     assert [constraint.name for constraint in problem.constraints] == [
         "labor",
@@ -624,3 +651,39 @@ def test_ready_linear_program_analysis_converts_to_internal_problem() -> None:
         "A_nonnegative",
         "B_nonnegative",
     ]
+
+
+def test_incomplete_integer_linear_program_is_clarification_not_unsupported() -> None:
+    from types import SimpleNamespace
+
+    from math_modeling_agent.analysis_agent import (
+        ProblemAnalysis,
+        SchedulingDraft,
+        analyze_problem,
+    )
+
+    analysis = ProblemAnalysis(
+        status="unsupported",
+        problem_family="linear_programming",
+        summary="整数生产计划缺少资源上限。",
+        known_facts=["产品数量为整数"],
+        missing_information=["可用工时"],
+        clarifying_questions=["可用工时上限是多少？"],
+        unsupported_reasons=["整数变量属于优化决策"],
+        subtasks=[],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=empty_linear_program_draft(),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
+    )
+    client = SimpleNamespace(
+        responses=SimpleNamespace(
+            parse=lambda **arguments: SimpleNamespace(output_parsed=analysis)
+        )
+    )
+
+    result = analyze_problem("整数生产计划，资源上限还未提供", client=client)
+
+    assert result.status == "needs_clarification"
+    assert result.unsupported_reasons == []

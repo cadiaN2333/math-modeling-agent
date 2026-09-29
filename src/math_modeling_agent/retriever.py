@@ -26,6 +26,40 @@ class MethodRecommendation:
     relevance_score: float
 
 
+def prioritize_compatible_linear_methods(
+    recommendations: list[MethodRecommendation],
+    *,
+    has_discrete_variables: bool,
+) -> list[MethodRecommendation]:
+    """把与变量域匹配的线性求解方法置顶并移除不兼容后端。"""
+
+    preferred_method_id = (
+        "integer_programming"
+        if has_discrete_variables
+        else "continuous_linear_programming"
+    )
+    incompatible_method_id = (
+        "continuous_linear_programming"
+        if has_discrete_variables
+        else "integer_programming"
+    )
+    compatible = [
+        method
+        for method in recommendations
+        if method.method_id != incompatible_method_id
+    ]
+    preferred = next(
+        (method for method in compatible if method.method_id == preferred_method_id),
+        None,
+    )
+    if preferred is None:
+        return compatible
+    return [
+        preferred,
+        *(method for method in compatible if method.method_id != preferred_method_id),
+    ]
+
+
 def _keyword_hits(text: str, keywords: list[str]) -> int:
     """统计知识卡片关键词在查询文本中的命中数。"""
 

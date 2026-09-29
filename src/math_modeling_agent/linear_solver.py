@@ -1,4 +1,4 @@
-"""使用 OR-Tools GLOP 求解连续线性规划。"""
+"""使用 OR-Tools GLOP 或 SCIP 求解连续/混合整数线性规划。"""
 
 from dataclasses import dataclass
 
@@ -9,29 +9,43 @@ from .models import LinearProgramProblem
 
 @dataclass
 class LinearSolverResult:
-    """保存 LP 求解状态、目标值和变量解。"""
+    """保存 LP/MILP 求解状态、后端、目标值和变量解。"""
 
     status: str
     objective_value: float | None
     variable_values: dict[str, float]
+    solver_name: str
 
 
-def _build_glop_model(
+def _select_solver_name(problem: LinearProgramProblem) -> str:
+    """根据变量域为连续 LP 或含离散变量模型选择后端。"""
+
+    if any(variable.domain != "continuous" for variable in problem.variables):
+        return "SCIP"
+    return "GLOP"
+
+
+def _build_linear_model(
     problem: LinearProgramProblem,
     *,
     include_objective: bool,
-) -> tuple[pywraplp.Solver | None, dict[str, pywraplp.Variable]]:
-    """建立原模型或只含约束的可行性模型。"""
+) -> tuple[pywraplp.Solver | None, dict[str, pywraplp.Variable], str]:
+    """建立连续或混合整数模型，也可建立只含约束的可行性模型。"""
 
-    solver = pywraplp.Solver.CreateSolver("GLOP")
+    solver_name = _select_solver_name(problem)
+    solver = pywraplp.Solver.CreateSolver(solver_name)
     if solver is None:
-        return None, {}
+        return None, {}, solver_name
 
     infinity = solver.infinity()
-    variables = {
-        item.name: solver.NumVar(-infinity, infinity, item.name)
-        for item in problem.variables
-    }
+    variables: dict[str, pywraplp.Variable] = {}
+    for item in problem.variables:
+        if item.domain == "binary":
+            variables[item.name] = solver.BoolVar(item.name)
+        elif item.domain == "integer":
+            variables[item.name] = solver.IntVar(-infinity, infinity, item.name)
+        else:
+            variables[item.name] = solver.NumVar(-infinity, infinity, item.name)
 
     for constraint in problem.constraints:
         expression = sum(
@@ -57,7 +71,7 @@ def _build_glop_model(
         # 零目标模型只检查约束集合是否存在可行点。
         objective.SetMinimization()
 
-    return solver, variables
+    return solver, variables, solver_name
 
 
 def _status_name(status_code: int) -> str:
@@ -75,23 +89,30 @@ def _status_name(status_code: int) -> str:
 
 
 def solve_linear_program(problem: LinearProgramProblem) -> LinearSolverResult:
-    """建立 GLOP 模型并返回结果；非可行状态不返回伪造解。"""
+    """按变量域建立 GLOP/SCIP 模型；非可行状态不返回伪造解。"""
 
-    solver, variables = _build_glop_model(problem, include_objective=True)
+    solver, variables, solver_name = _build_linear_model(
+        problem,
+        include_objective=True,
+    )
     if solver is None:
         return LinearSolverResult(
             status="SOLVER_UNAVAILABLE",
             objective_value=None,
             variable_values={},
+            solver_name=solver_name,
         )
 
     status_code = solver.Solve()
     status = _status_name(status_code)
 
-    if status == "INFEASIBLE":
+    if status == "INFEASIBLE" and solver_name == "GLOP":
         # GLOP 的 MPSolver 包装会把“不可行或无界”归为 INFEASIBLE；
         # 用同一组约束和零目标再求一次，区分确实无解与目标无界。
-        feasibility_solver, _ = _build_glop_model(problem, include_objective=False)
+        feasibility_solver, _, _ = _build_linear_model(
+            problem,
+            include_objective=False,
+        )
         if feasibility_solver is None:
             status = "INFEASIBLE_OR_UNBOUNDED"
         else:
@@ -106,6 +127,7 @@ def solve_linear_program(problem: LinearProgramProblem) -> LinearSolverResult:
             status=status,
             objective_value=None,
             variable_values={},
+            solver_name=solver_name,
         )
 
     return LinearSolverResult(
@@ -115,4 +137,5 @@ def solve_linear_program(problem: LinearProgramProblem) -> LinearSolverResult:
             name: variable.solution_value()
             for name, variable in variables.items()
         },
+        solver_name=solver_name,
     )

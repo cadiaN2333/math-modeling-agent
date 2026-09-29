@@ -258,6 +258,80 @@ def test_cli_solve_confirmed_draft_runs_local_solver(capsys, tmp_path) -> None:
     assert result["modeling_run"]["validation_report"]["is_valid"] is True
 
 
+def test_cli_solve_confirmed_integer_linear_draft_uses_scip(capsys, tmp_path) -> None:
+    from math_modeling_agent.analysis_agent import (
+        AnalysisSubtask,
+        LinearConstraintDraft,
+        LinearProgramDraft,
+        LinearTermDraft,
+        LinearVariableDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+    )
+    from math_modeling_agent import cli
+
+    analysis = ProblemAnalysis(
+        status="ready",
+        problem_family="linear_programming",
+        summary="最大化整数产品x的产量。",
+        known_facts=["x为非负整数", "产能约束为2x不超过5"],
+        missing_information=[],
+        clarifying_questions=[],
+        unsupported_reasons=[],
+        subtasks=[
+            AnalysisSubtask(
+                task_id="T1",
+                description="建立整数线性生产模型。",
+                objective="最大化产量。",
+                data_needed=[],
+                depends_on=[],
+                hmml_problem_query="整数变量、线性目标和线性容量约束的生产计划",
+                hmml_goal_query="最大化整数产量并满足容量限制",
+            )
+        ],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[
+                LinearVariableDraft(name="x", unit="件", domain="integer")
+            ],
+            objective_direction="maximize",
+            objective_terms=[LinearTermDraft(variable="x", coefficient=1)],
+            constraints=[
+                LinearConstraintDraft(
+                    constraint_id="capacity",
+                    terms=[LinearTermDraft(variable="x", coefficient=2)],
+                    relation="<=",
+                    rhs=5,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="nonnegative",
+                    terms=[LinearTermDraft(variable="x", coefficient=1)],
+                    relation=">=",
+                    rhs=0,
+                ),
+            ],
+        ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
+    )
+    draft_path = tmp_path / "integer-draft.json"
+    draft_path.write_text(
+        json.dumps({"analysis": analysis.model_dump(mode="json")}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(["--solve-draft", str(draft_path)])
+    result = json.loads(capsys.readouterr().out)
+    solver_result = result["modeling_run"]["solver_result"]
+
+    assert exit_code == 0
+    assert solver_result["status"] == "OPTIMAL"
+    assert solver_result["solver_name"] == "SCIP"
+    assert solver_result["variable_values"] == pytest.approx({"x": 2})
+    assert result["modeling_run"]["validation_report"]["is_valid"] is True
+
+
 def test_cli_solve_confirmed_draft_rejects_malformed_json(capsys, tmp_path) -> None:
     from math_modeling_agent.cli import main
 
@@ -311,8 +385,8 @@ def test_cli_ready_linear_program_request_returns_draft_without_solving(capsys, 
         ),
         linear_program_draft=LinearProgramDraft(
             variables=[
-                LinearVariableDraft(name="A", unit="件"),
-                LinearVariableDraft(name="B", unit="件"),
+                LinearVariableDraft(name="A", unit="件", domain="continuous"),
+                LinearVariableDraft(name="B", unit="件", domain="continuous"),
             ],
             objective_direction="maximize",
             objective_terms=[
@@ -372,6 +446,93 @@ def test_cli_ready_linear_program_request_returns_draft_without_solving(capsys, 
     assert exit_code == 0
     assert result["analysis"]["problem_family"] == "linear_programming"
     assert result["analysis"]["linear_program_draft"]["variables"]
+    assert "modeling_run" not in result
+
+
+def test_cli_integer_draft_recommends_scip_before_user_confirmation(
+    capsys,
+    monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    import pytest
+
+    from math_modeling_agent import cli
+    from math_modeling_agent.analysis_agent import (
+        AnalysisSubtask,
+        LinearConstraintDraft,
+        LinearProgramDraft,
+        LinearTermDraft,
+        LinearVariableDraft,
+        ProblemAnalysis,
+        SchedulingDraft,
+    )
+
+    analysis = ProblemAnalysis(
+        status="ready",
+        problem_family="linear_programming",
+        summary="最大化整数产品x的产量。",
+        known_facts=["x为非负整数", "资源约束为2x不超过5"],
+        missing_information=[],
+        clarifying_questions=[],
+        unsupported_reasons=[],
+        subtasks=[
+            AnalysisSubtask(
+                task_id="T1",
+                description="建立整数线性生产模型。",
+                objective="最大化产量。",
+                data_needed=[],
+                depends_on=[],
+                hmml_problem_query="混合整数线性规划，x为整数变量，资源约束为2x不超过5",
+                hmml_goal_query="最大化整数产量",
+            )
+        ],
+        scheduling_draft=SchedulingDraft(
+            employees=[], shifts=[], coverage_requirements=[]
+        ),
+        linear_program_draft=LinearProgramDraft(
+            variables=[
+                LinearVariableDraft(name="x", unit="件", domain="integer")
+            ],
+            objective_direction="maximize",
+            objective_terms=[LinearTermDraft(variable="x", coefficient=1)],
+            constraints=[
+                LinearConstraintDraft(
+                    constraint_id="capacity",
+                    terms=[LinearTermDraft(variable="x", coefficient=2)],
+                    relation="<=",
+                    rhs=5,
+                ),
+                LinearConstraintDraft(
+                    constraint_id="nonnegative",
+                    terms=[LinearTermDraft(variable="x", coefficient=1)],
+                    relation=">=",
+                    rhs=0,
+                ),
+            ],
+        ),
+        minimum_cost_flow_draft=empty_min_cost_flow_draft(),
+    )
+
+    class FakeResponses:
+        def parse(self, **arguments):
+            return SimpleNamespace(output_parsed=analysis)
+
+    def fail_if_solver_runs(_problem):
+        pytest.fail("--request 只生成草稿，不应启动求解器")
+
+    monkeypatch.setattr(cli, "run_linear_modeling", fail_if_solver_runs)
+    exit_code = cli.main(
+        ["--request", "整数产品x，最大化产量，约束2x不超过5。"],
+        llm_client=SimpleNamespace(responses=FakeResponses()),
+    )
+    result = json.loads(capsys.readouterr().out)
+    methods = result["method_recommendations"]["T1"]
+
+    assert exit_code == 0
+    assert methods[0]["method_id"] == "integer_programming"
+    assert methods[0]["solver"] == "OR-Tools SCIP"
+    assert all(item["method_id"] != "continuous_linear_programming" for item in methods)
     assert "modeling_run" not in result
 
 

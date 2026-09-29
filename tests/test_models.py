@@ -331,3 +331,27 @@ def test_min_cost_flow_allows_parallel_routes_with_distinct_ids() -> None:
         if arc.from_node == "W1" and arc.to_node == "S1"
     ]
     assert len(matching_routes) == 2
+
+
+def test_linear_variable_domain_defaults_to_continuous() -> None:
+    from math_modeling_agent.models import LinearVariable
+
+    variable = LinearVariable(name="x", unit="件")
+
+    assert variable.domain == "continuous"
+
+
+@pytest.mark.parametrize("domain", ["integer", "binary"])
+def test_linear_variable_accepts_discrete_domains(domain: str) -> None:
+    from math_modeling_agent.models import LinearVariable
+
+    variable = LinearVariable(name="x", unit="件", domain=domain)
+
+    assert variable.domain == domain
+
+
+def test_linear_variable_rejects_unknown_domain() -> None:
+    from math_modeling_agent.models import LinearVariable
+
+    with pytest.raises(ValidationError):
+        LinearVariable(name="x", unit="件", domain="semi_continuous")

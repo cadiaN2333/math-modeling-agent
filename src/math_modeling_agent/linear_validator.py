@@ -1,4 +1,4 @@
-"""独立验证连续线性规划的变量解、约束和目标值。"""
+"""独立验证连续/混合整数线性规划的变量域、约束和目标值。"""
 
 from dataclasses import dataclass
 from math import isfinite
@@ -43,6 +43,15 @@ def validate_linear_solution(
             errors.append(f"变量 {name} 的值不是有限数值")
         elif name in variable_names:
             finite_values[name] = value
+
+    for variable in problem.variables:
+        if variable.name not in finite_values:
+            continue
+        value = finite_values[variable.name]
+        if variable.domain == "integer" and abs(value - round(value)) > tolerance:
+            errors.append(f"整数变量 {variable.name} 的值不是整数：{value}")
+        elif variable.domain == "binary" and min(abs(value), abs(value - 1)) > tolerance:
+            errors.append(f"二进制变量 {variable.name} 的值不在 0 或 1：{value}")
 
     for constraint in problem.constraints:
         if any(term.variable not in finite_values for term in constraint.terms):

@@ -31,6 +31,37 @@ def test_retrieval_ranks_cp_sat_for_employee_scheduling() -> None:
     assert recommendations[0].goal_score > 0
 
 
+def test_retrieval_ranks_scip_for_mixed_integer_linear_programming() -> None:
+    from math_modeling_agent.linear_agent import _describe_linear_program
+    from math_modeling_agent.models import (
+        LinearObjective,
+        LinearProgramProblem,
+        LinearTerm,
+        LinearVariable,
+    )
+    from math_modeling_agent.retriever import HMMLRetriever
+
+    problem = LinearProgramProblem(
+        variables=[LinearVariable(name="x", unit="件", domain="integer")],
+        objective=LinearObjective(
+            direction="maximize",
+            terms=[LinearTerm(variable="x", coefficient=1)],
+        ),
+        constraints=[],
+    )
+    recommendations = HMMLRetriever().retrieve(
+        problem_description=_describe_linear_program(problem),
+        desired_outcome="使用整数/混合整数线性规划和 SCIP 满足线性约束并优化单一目标函数。",
+        top_k=3,
+    )
+
+    integer_method = next(
+        item for item in recommendations if item.method_id == "integer_programming"
+    )
+    assert integer_method.implementation_status == "已实现"
+    assert integer_method.solver == "OR-Tools SCIP"
+
+
 def test_retrieval_returns_no_candidates_for_unrelated_text() -> None:
     from math_modeling_agent.retriever import HMMLRetriever
 

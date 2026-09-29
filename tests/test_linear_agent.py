@@ -57,3 +57,58 @@ def test_linear_agent_solves_and_independently_validates_production_plan() -> No
         for method in result.method_recommendations
         if method.implementation_status == "已实现"
     }
+    assert all(
+        method.method_id != "integer_programming"
+        for method in result.method_recommendations
+    )
+
+
+def test_linear_agent_recommends_implemented_milp_method_for_integer_model() -> None:
+    from math_modeling_agent.linear_agent import run_linear_modeling
+    from math_modeling_agent.models import (
+        LinearConstraint,
+        LinearObjective,
+        LinearProgramProblem,
+        LinearTerm,
+        LinearVariable,
+    )
+
+    problem = LinearProgramProblem(
+        variables=[LinearVariable(name="x", unit="件", domain="integer")],
+        objective=LinearObjective(
+            direction="maximize",
+            terms=[LinearTerm(variable="x", coefficient=1)],
+        ),
+        constraints=[
+            LinearConstraint(
+                name="容量",
+                terms=[LinearTerm(variable="x", coefficient=1)],
+                relation="<=",
+                rhs=2.5,
+            ),
+            LinearConstraint(
+                name="非负",
+                terms=[LinearTerm(variable="x", coefficient=1)],
+                relation=">=",
+                rhs=0,
+            ),
+        ],
+    )
+
+    result = run_linear_modeling(problem)
+
+    assert result.solver_result.status == "OPTIMAL"
+    assert result.solver_result.solver_name == "SCIP"
+    assert result.solver_result.variable_values["x"] == pytest.approx(2)
+    assert result.validation_report is not None
+    assert result.validation_report.is_valid
+    assert result.method_recommendations[0].method_id == "integer_programming"
+    assert all(
+        method.method_id != "continuous_linear_programming"
+        for method in result.method_recommendations
+    )
+    assert "integer_programming" in {
+        method.method_id
+        for method in result.method_recommendations
+        if method.implementation_status == "已实现"
+    }

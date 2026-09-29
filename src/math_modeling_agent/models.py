@@ -115,10 +115,11 @@ class MinCostFlowProblem(BaseModel):
 
 
 class LinearVariable(BaseModel):
-    """LP 决策变量的名称和单位。变量界限用显式线性约束表示。"""
+    """线性规划决策变量的名称、单位和变量域。"""
 
     name: str = Field(min_length=1)
     unit: str = Field(min_length=1)
+    domain: Literal["continuous", "integer", "binary"] = "continuous"
 
 
 class LinearTerm(BaseModel):
@@ -136,7 +137,7 @@ class LinearTerm(BaseModel):
 
 
 class LinearObjective(BaseModel):
-    """连续 LP 的单一线性目标函数。"""
+    """连续 LP 或 MILP 的单一线性目标函数。"""
 
     direction: Literal["maximize", "minimize"]
     terms: list[LinearTerm] = Field(min_length=1)
@@ -150,7 +151,7 @@ class LinearObjective(BaseModel):
 
 
 class LinearConstraint(BaseModel):
-    """连续 LP 的一条线性约束。"""
+    """连续 LP 或 MILP 的一条线性约束。"""
 
     name: str = Field(min_length=1)
     terms: list[LinearTerm] = Field(min_length=1)
@@ -173,7 +174,7 @@ class LinearConstraint(BaseModel):
 
 
 class LinearProgramProblem(BaseModel):
-    """连续、单目标线性规划的求解输入。"""
+    """连续、整数或二进制变量构成的单目标线性规划求解输入。"""
 
     variables: list[LinearVariable] = Field(min_length=1)
     objective: LinearObjective

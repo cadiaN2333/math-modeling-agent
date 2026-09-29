@@ -96,3 +96,59 @@ def test_linear_validator_rejects_objective_value_mismatch() -> None:
 
     assert not report.is_valid
     assert any("目标值" in error for error in report.errors)
+
+
+def test_linear_validator_rejects_fractional_integer_variable() -> None:
+    from math_modeling_agent.linear_validator import validate_linear_solution
+    from math_modeling_agent.models import (
+        LinearObjective,
+        LinearProgramProblem,
+        LinearTerm,
+        LinearVariable,
+    )
+
+    problem = LinearProgramProblem(
+        variables=[LinearVariable(name="x", unit="件", domain="integer")],
+        objective=LinearObjective(
+            direction="maximize",
+            terms=[LinearTerm(variable="x", coefficient=1)],
+        ),
+        constraints=[],
+    )
+
+    report = validate_linear_solution(
+        problem,
+        variable_values={"x": 1.5},
+        reported_objective=1.5,
+    )
+
+    assert not report.is_valid
+    assert any("整数" in error and "x" in error for error in report.errors)
+
+
+def test_linear_validator_rejects_binary_variable_outside_zero_one() -> None:
+    from math_modeling_agent.linear_validator import validate_linear_solution
+    from math_modeling_agent.models import (
+        LinearObjective,
+        LinearProgramProblem,
+        LinearTerm,
+        LinearVariable,
+    )
+
+    problem = LinearProgramProblem(
+        variables=[LinearVariable(name="y", unit="是否启用", domain="binary")],
+        objective=LinearObjective(
+            direction="maximize",
+            terms=[LinearTerm(variable="y", coefficient=1)],
+        ),
+        constraints=[],
+    )
+
+    report = validate_linear_solution(
+        problem,
+        variable_values={"y": 0.5},
+        reported_objective=0.5,
+    )
+
+    assert not report.is_valid
+    assert any("二进制" in error and "y" in error for error in report.errors)

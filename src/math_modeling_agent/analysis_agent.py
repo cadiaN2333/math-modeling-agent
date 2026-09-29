@@ -21,7 +21,11 @@ from .models import (
     SchedulingProblem,
     Shift,
 )
-from .retriever import HMMLRetriever, MethodRecommendation
+from .retriever import (
+    HMMLRetriever,
+    MethodRecommendation,
+    prioritize_compatible_linear_methods,
+)
 
 
 class AnalysisSubtask(BaseModel):
@@ -87,10 +91,24 @@ class SchedulingDraft(BaseModel):
 
 
 class LinearVariableDraft(BaseModel):
-    """自然语言分析得到的一个连续线性规划变量。"""
+    """自然语言分析得到的一个连续或离散线性规划变量。"""
 
     name: str = Field(description="变量名称，例如 A")
     unit: str = Field(description="变量单位；没有单位概念时填写无单位")
+    domain: Literal["continuous", "integer", "binary"] = Field(
+        description="变量域；按问题事实选择连续、整数或0-1二进制"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_legacy_domain(cls, value: Any) -> Any:
+        """兼容升级前未包含变量域的已保存草稿。"""
+
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        normalized.setdefault("domain", "continuous")
+        return normalized
 
 
 class LinearTermDraft(BaseModel):
@@ -126,7 +144,7 @@ class LinearConstraintDraft(BaseModel):
 
 
 class LinearProgramDraft(BaseModel):
-    """模型提取出的连续单目标线性规划草稿。"""
+    """模型提取出的连续或混合整数单目标线性规划草稿。"""
 
     variables: list[LinearVariableDraft] = Field(description="决策变量；未使用 LP 时为空")
     objective_direction: Literal["maximize", "minimize", "not_applicable"] = Field(
@@ -252,7 +270,7 @@ class ProblemAnalysis(BaseModel):
         "linear_programming",
         "minimum_cost_flow",
         "other",
-    ] = Field(description="问题领域；other 表示当前尚未实现的其他优化问题")
+    ] = Field(description="问题领域；linear_programming 包含 LP/MILP，other 表示当前未实现的其他问题")
     summary: str = Field(description="对用户问题的简明重述")
     known_facts: list[str] = Field(description="用户明确给出的事实")
     missing_information: list[str] = Field(description="建立模型所需但尚缺的信息")
@@ -263,7 +281,7 @@ class ProblemAnalysis(BaseModel):
         description="信息完整时填写排班草稿；需要追问或超出范围时各列表返回空数组"
     )
     linear_program_draft: LinearProgramDraft = Field(
-        description="连续单目标 LP 草稿；未使用 LP 时用固定 not_applicable 空草稿"
+        description="连续或混合整数单目标线性模型草稿；未使用时用固定 not_applicable 空草稿"
     )
     minimum_cost_flow_draft: MinCostFlowDraft = Field(
         description="单商品整数最小费用流草稿；未使用该领域时使用固定 not_applicable 空草稿"
@@ -370,11 +388,11 @@ class ProblemAnalysis(BaseModel):
 ANALYSIS_INSTRUCTIONS = """
 你是数学建模问题分析助手，负责理解和拆分问题；不要求解问题，也不要生成程序代码。
 
-当前已实现三个领域：员工排班、连续单目标线性规划，以及整数单位的单商品最小费用网络流。
+当前已实现三个领域：员工排班、连续/混合整数单目标线性规划，以及整数单位的单商品最小费用网络流。
 员工排班可处理员工技能、员工最大总工时、班次时长、每班最低人数和每班技能人数要求。
-线性规划可处理连续决策变量、一个线性最大化/最小化目标及线性不等式/等式约束；变量界限写成显式线性约束。
+线性规划可处理连续、整数和二进制变量，一个线性最大化/最小化目标及线性不等式/等式约束；连续模型用 GLOP，含整数/二进制变量的模型用 SCIP；变量界限写成显式线性约束。
 最小费用网络流可处理整数单位的单商品运输/网络流；节点净供给为正表示供给、负表示需求、零表示中转；每条有向路线提供整数容量和整数单位费用；必须满足全部供需并最小化总费用。
-当前不支持班次起止时间、员工可用时间、工资、公平性权重、LP 整数/二进制变量、非线性、多目标、多商品流、最大流、部分供需的最小费用最大流、连续流量和车辆路径/时间窗。
+当前不支持班次起止时间、员工可用时间、工资、公平性权重、非线性、多目标、多商品流、最大流、部分供需的最小费用最大流、连续流量和车辆路径/时间窗。
 
 请遵守以下规则：
 1. 只把用户明确提供的信息写入 known_facts；不能编造系数、资源数量、员工、技能、时长、网络节点、路线、容量或限制。
@@ -394,17 +412,18 @@ ANALYSIS_INSTRUCTIONS = """
 11. 用户没有提供员工编号但提供了姓名时，可依次生成 E1、E2 等内部编号；不得编造姓名或工时。
 12. 用户没有提出某班的额外技能要求时，该班 skill_requirements 返回空数组，不要为此追问。
 13. ready 且 problem_family 为 linear_programming 时，必须完整填写 linear_program_draft：
-    - variables 中为每个决策变量填写 name 和 unit；单位缺失且会影响表达时应追问，不涉及单位时填写“无单位”；
+    - variables 中为每个决策变量填写 name、unit 和 domain；domain 只能为 continuous、integer 或 binary；只有用户明确说明不可分割/整数要求或变量天然是计数时才选择 integer/binary，否则用 continuous；
+    - 单位缺失且会影响表达时应追问，不涉及单位时填写“无单位”；
     - objective_direction 只能为 maximize 或 minimize；objective_terms 填写用户给出的数值系数项，不得编造；
     - constraints 中为每个约束填写 constraint_id、terms、relation 和 rhs；relation 只能为 <=、>= 或 ==；
-    - 非负条件等变量界限必须写成显式约束；不得隐含添加用户未提供的限制；scheduling_draft 和 minimum_cost_flow_draft 必须为空草稿。
+    - 用户给出的上下界必须写成显式约束；binary 域本身只表达 0/1 取值，不得隐含添加其他界限；不得添加用户未提供的限制；scheduling_draft 和 minimum_cost_flow_draft 必须为空草稿。
 14. ready 且 problem_family 为 minimum_cost_flow 时，必须完整填写 minimum_cost_flow_draft：
     - nodes 中逐个填写 node_id、name、supply；supply 是带符号整数，正数为供给、负数为需求、0 为中转；
     - arcs 中逐条填写 arc_id、from_node、to_node、capacity、unit_cost；capacity 为非负整数，unit_cost 为整数；
     - flow_unit 和 cost_unit 必须明确说明，如“箱”和“元/箱”；不得添加用户未提供的虚拟节点或路线；
     - 小数费用仅可在等值换算为最小货币整数单位且说明单位后转换，例如 2.35 元/箱转换为 235 分/箱；无法无损换算时应追问；
     - 所有节点供需必须完整满足；minimum_cost_flow_draft 是唯一活动领域草稿，另外两份草稿必须为空。
-15. LP 只支持连续变量、单一线性目标和线性约束。用户要求 LP 整数/二进制变量、非线性或多目标时，必须标记 unsupported。
+15. 线性规划支持连续、整数、二进制变量以及单一线性目标和线性约束。用户要求非线性或多目标时，必须标记 unsupported；若变量是否必须取整数会改变模型且题意不清楚，应追问，不得擅自把连续变量改成整数变量。
 16. 网络流只支持整数单位、单商品且必须完整满足所有节点供需的最小费用流。用户要求多商品流、最大流、部分供需的最小费用最大流、连续/小数流量、车辆路径或时间窗时，必须标记 unsupported，不得转写成其他已实现模型。
 17. 当前版本不支持的排班时间、工资、公平性等要求，必须标记 unsupported 并说明具体原因。
 18. status 为 needs_clarification 或 unsupported 时，三份领域草稿都必须为空：scheduling_draft 为 {"employees": [], "shifts": [], "coverage_requirements": []}；linear_program_draft 为 {"variables": [], "objective_direction": "not_applicable", "objective_terms": [], "constraints": []}；minimum_cost_flow_draft 为 {"nodes": [], "arcs": [], "flow_unit": "not_applicable", "cost_unit": "not_applicable"}。
@@ -413,7 +432,6 @@ ANALYSIS_INSTRUCTIONS = """
 
 
 UNSUPPORTED_FEATURE_MARKERS = (
-    "二进制",
     "非线性",
     "多目标",
     "最大流",
@@ -440,9 +458,6 @@ UNSUPPORTED_FEATURE_MARKERS = (
     "fractional flow",
 )
 
-INTEGER_DECISION_MARKERS = ("整数", "二进制", "integer", "binary")
-
-
 def _normalize_incomplete_analysis(analysis: ProblemAnalysis) -> ProblemAnalysis:
     """将缺少数据但无明确超范围功能的误判改为追问状态。"""
 
@@ -456,8 +471,6 @@ def _normalize_incomplete_analysis(analysis: ProblemAnalysis) -> ProblemAnalysis
 
     unsupported_text = " ".join(analysis.unsupported_reasons).casefold()
     unsupported_markers = list(UNSUPPORTED_FEATURE_MARKERS)
-    if analysis.problem_family == "linear_programming":
-        unsupported_markers.extend(INTEGER_DECISION_MARKERS)
     if any(marker.casefold() in unsupported_text for marker in unsupported_markers):
         return analysis
 
@@ -568,7 +581,7 @@ def to_scheduling_problem(analysis: ProblemAnalysis) -> SchedulingProblem:
 
 
 def to_linear_program_problem(analysis: ProblemAnalysis) -> LinearProgramProblem:
-    """把 ready 的连续 LP 草稿转换为求解器内部模型。"""
+    """把 ready 的连续或混合整数线性草稿转换为内部模型。"""
 
     if analysis.status != "ready" or analysis.problem_family != "linear_programming":
         raise ValueError("只有 ready 的线性规划问题才能开始求解")
@@ -576,7 +589,11 @@ def to_linear_program_problem(analysis: ProblemAnalysis) -> LinearProgramProblem
     draft = analysis.linear_program_draft
     return LinearProgramProblem(
         variables=[
-            LinearVariable(name=variable.name, unit=variable.unit)
+            LinearVariable(
+                name=variable.name,
+                unit=variable.unit,
+                domain=variable.domain,
+            )
             for variable in draft.variables
         ],
         objective=LinearObjective(
@@ -648,10 +665,20 @@ def retrieve_methods_for_subtasks(
         return {}
 
     method_retriever = retriever or HMMLRetriever()
-    return {
-        task.task_id: method_retriever.retrieve(
+    recommendations_by_task = {}
+    has_discrete_variables = any(
+        variable.domain != "continuous"
+        for variable in analysis.linear_program_draft.variables
+    )
+    for task in analysis.subtasks:
+        recommendations = method_retriever.retrieve(
             problem_description=task.hmml_problem_query,
             desired_outcome=task.hmml_goal_query,
         )
-        for task in analysis.subtasks
-    }
+        if analysis.problem_family == "linear_programming":
+            recommendations = prioritize_compatible_linear_methods(
+                recommendations,
+                has_discrete_variables=has_discrete_variables,
+            )
+        recommendations_by_task[task.task_id] = recommendations
+    return recommendations_by_task

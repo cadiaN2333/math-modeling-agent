@@ -320,7 +320,10 @@ def test_eval_case_scores_linear_program_structure_values_and_objective() -> Non
     }
     actual_model = {
         **expected_model,
-        "variables": list(reversed(expected_model["variables"])),
+        "variables": [
+            {**variable, "domain": "continuous"}
+            for variable in reversed(expected_model["variables"])
+        ],
         "objective_terms": list(reversed(expected_model["objective_terms"])),
         "constraints": [
             {
@@ -359,6 +362,43 @@ def test_eval_case_scores_linear_program_structure_values_and_objective() -> Non
         "variable_values",
         "objective_value",
     }
+
+
+def test_eval_scores_integer_linear_program_case() -> None:
+    from math_modeling_agent.evals import evaluate_case, load_eval_cases
+
+    case = next(
+        case
+        for case in load_eval_cases()
+        if case["id"] == "mixed_integer_linear_programming_integer_product"
+    )
+    payload = {
+        "analysis": {
+            "status": "ready",
+            "problem_family": "linear_programming",
+            "linear_program_draft": case["expected_model"],
+        },
+        "modeling_run": {
+            "solver_result": {
+                "status": "OPTIMAL",
+                "solver_name": "SCIP",
+                "variable_values": {"x": 2.0},
+                "objective_value": 2.0,
+            },
+            "validation_report": {"is_valid": True},
+            "method_recommendations": [
+                {
+                    "method_id": "integer_programming",
+                    "implementation_status": "已实现",
+                }
+            ],
+        },
+    }
+
+    result = evaluate_case(case, payload)
+
+    assert result["passed"] is True
+    assert "solver_status" in {item["name"] for item in result["checks"]}
 
 
 def test_eval_scores_network_flow_model_routes_and_total_cost() -> None:
@@ -590,13 +630,13 @@ def test_live_eval_routes_ready_linear_program_to_lp_adapter(monkeypatch, capsys
     assert report["results"][0]["passed"] is True
 
 
-def test_eval_dataset_has_eleven_unique_valid_domain_cases() -> None:
+def test_eval_dataset_has_twelve_unique_valid_domain_cases() -> None:
     from math_modeling_agent.evals import load_eval_cases
 
     cases = load_eval_cases()
     case_ids = [case["id"] for case in cases]
 
-    assert len(cases) == 11
+    assert len(cases) == 12
     assert len(case_ids) == len(set(case_ids))
     assert {case["family"] for case in cases} == {
         "scheduling",
@@ -606,6 +646,13 @@ def test_eval_dataset_has_eleven_unique_valid_domain_cases() -> None:
     assert next(
         case for case in cases if case["id"] == "linear_programming_production_plan"
     )["expected_analysis_status"] == "ready"
+    integer_case = next(
+        case
+        for case in cases
+        if case["id"] == "mixed_integer_linear_programming_integer_product"
+    )
+    assert integer_case["expected_method_id"] == "integer_programming"
+    assert "按件计" in integer_case["request"]
     assert next(
         case for case in cases if case["id"] == "minimum_cost_flow_warehouse_delivery"
     )["expected_analysis_status"] == "ready"
@@ -617,7 +664,8 @@ def test_eval_dataset_has_eleven_unique_valid_domain_cases() -> None:
     )["expected_analysis_status"] == "unsupported"
     assert all(
         case.get("expected_model")
-        and case.get("expected_method_id") == "continuous_linear_programming"
+        and case.get("expected_method_id")
+        in {"continuous_linear_programming", "integer_programming"}
         for case in cases
         if case["family"] == "linear_programming"
         and case["expected_analysis_status"] == "ready"
@@ -678,7 +726,7 @@ def test_evals_cli_defaults_to_offline_without_calling_analyzer(capsys) -> None:
 
     assert exit_code == 0
     assert report["mode"] == "offline_validation"
-    assert report["case_count"] == 11
+    assert report["case_count"] == 12
     assert report["api_calls"] == 0
 
 
