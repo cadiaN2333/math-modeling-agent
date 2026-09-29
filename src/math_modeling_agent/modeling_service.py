@@ -18,6 +18,8 @@ from .analysis_agent import (
     to_scheduling_problem,
 )
 from .linear_validator import validate_linear_solution
+from .knowledge_models import RetrievedEvidence
+from .knowledge_service import KnowledgeService
 from .min_cost_flow_validator import validate_min_cost_flow_solution
 from .optimization_compilers import (
     compile_linear_problem,
@@ -28,6 +30,7 @@ from .optimization_compilers import (
 )
 from .optimization_ir import EvidenceIR, OptimizationIR
 from .optimization_registry import OptimizationResult, SolverBackend, SolverRegistry
+from .retriever import HMMLRetriever, MethodRecommendation
 from .solver import Assignment
 from .validator import validate_solution
 
@@ -91,9 +94,11 @@ class ModelingService:
         *,
         analyzer: Callable[[str], ProblemAnalysis] | None = None,
         registry: SolverRegistry | None = None,
+        knowledge_service: KnowledgeService | None = None,
     ) -> None:
         self._analyzer = analyzer or analyze_problem
         self._registry = registry or SolverRegistry()
+        self._knowledge_service = knowledge_service
         self._sessions: dict[str, ModelingSession] = {}
         self._confirmation_digests: dict[str, str] = {}
         self._results: dict[str, OptimizationResult] = {}
@@ -149,6 +154,97 @@ class ModelingService:
         """返回会话副本，避免调用方通过可变模型修改服务端草稿。"""
 
         return self._copy_session(self._get_internal_session(session_id))
+
+    def retrieve_knowledge(
+        self,
+        session_id: str,
+        *,
+        query: str | None = None,
+        solver_ids: list[str] | None = None,
+        top_k: int = 5,
+    ) -> list[RetrievedEvidence]:
+        """按问题族查询带来源的参考知识，不改写或补充题目事实。"""
+
+        analysis = self._get_internal_session(session_id).analysis
+        query_text = query or " ".join(
+            [
+                analysis.summary,
+                *analysis.known_facts,
+                *(item.hmml_problem_query for item in analysis.subtasks),
+                *(item.hmml_goal_query for item in analysis.subtasks),
+            ]
+        )
+        if solver_ids is None:
+            if analysis.problem_family == "employee_scheduling":
+                solver_ids = ["ortools_cp_sat", "ortools_scip"]
+            elif analysis.problem_family == "minimum_cost_flow":
+                solver_ids = ["ortools_simple_min_cost_flow"]
+            elif analysis.problem_family == "linear_programming":
+                has_discrete_variables = any(
+                    variable.domain != "continuous"
+                    for variable in analysis.linear_program_draft.variables
+                )
+                solver_ids = (
+                    ["ortools_scip"]
+                    if has_discrete_variables
+                    else ["ortools_glop"]
+                )
+
+        return self.search_knowledge(
+            query_text,
+            problem_family=analysis.problem_family,
+            solver_ids=solver_ids,
+            top_k=top_k,
+        )
+
+    @property
+    def has_knowledge_service(self) -> bool:
+        """指示是否已显式配置带来源的 RAG 检索。"""
+
+        return self._knowledge_service is not None
+
+    def search_knowledge(
+        self,
+        query: str,
+        *,
+        problem_family: str,
+        solver_ids: list[str] | None = None,
+        top_k: int = 5,
+    ) -> list[RetrievedEvidence]:
+        """供只读工具和服务会话共享的知识证据检索入口。"""
+
+        if self._knowledge_service is None:
+            raise RuntimeError("当前 ModelingService 未配置知识检索服务")
+        return self._knowledge_service.retrieve(
+            query,
+            problem_family=problem_family,
+            solver_ids=solver_ids,
+            top_k=top_k,
+        )
+
+    def search_methods(
+        self,
+        problem_description: str,
+        desired_outcome: str,
+        *,
+        required_method_id: str | None = None,
+        top_k: int = 3,
+    ) -> list[MethodRecommendation]:
+        """通过 HMML 结构化关键词知识检索方法建议。"""
+
+        if self._knowledge_service is not None:
+            return self._knowledge_service.retrieve_methods(
+                problem_description,
+                desired_outcome,
+                required_method_id=required_method_id,
+                top_k=top_k,
+            )
+        return HMMLRetriever().retrieve(
+            problem_description=problem_description,
+            desired_outcome=desired_outcome,
+            required_method_id=required_method_id,
+            top_k=top_k,
+        )
 
     def _compile_analysis(self, session: ModelingSession) -> OptimizationIR:
         analysis = session.analysis

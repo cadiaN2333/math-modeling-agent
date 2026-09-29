@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "source_id": "local-linear-modeling",
+      "title": "连续与混合整数线性规划",
+      "source_uri": "repo://docs/knowledge/linear-modeling.md",
+      "version": "2026-09-29",
+      "problem_families": ["linear_programming"],
+      "solver_ids": ["ortools_glop", "ortools_scip", "ortools_cp_sat"],
+      "review_status": "approved",
+      "card_path": "docs/knowledge/linear-modeling.md"
+    },
+    {
+      "source_id": "local-solver-capabilities",
+      "title": "求解器能力与选择边界",
+      "source_uri": "repo://docs/knowledge/solver-capabilities.md",
+      "version": "2026-09-29",
+      "problem_families": [
+        "employee_scheduling",
+        "linear_programming",
+        "minimum_cost_flow",
+        "energy_park"
+      ],
+      "solver_ids": [
+        "ortools_glop",
+        "ortools_scip",
+        "ortools_cp_sat",
+        "ortools_simple_min_cost_flow"
+      ],
+      "review_status": "approved",
+      "card_path": "docs/knowledge/solver-capabilities.md"
+    },
+    {
+      "source_id": "local-model-validation",
+      "title": "模型来源、确认与独立验证",
+      "source_uri": "repo://docs/knowledge/model-validation.md",
+      "version": "2026-09-29",
+      "problem_families": [
+        "employee_scheduling",
+        "linear_programming",
+        "minimum_cost_flow",
+        "energy_park"
+      ],
+      "solver_ids": [
+        "ortools_glop",
+        "ortools_scip",
+        "ortools_cp_sat",
+        "ortools_simple_min_cost_flow"
+      ],
+      "review_status": "approved",
+      "card_path": "docs/knowledge/model-validation.md"
+    },
+    {
+      "source_id": "local-electric-cup-storage-assumptions",
+      "title": "电工杯 A 题储能参考假设",
+      "source_uri": "repo://docs/knowledge/energy-storage.md",
+      "version": "2026-09-29",
+      "problem_families": ["energy_park"],
+      "solver_ids": ["ortools_scip"],
+      "review_status": "approved",
+      "card_path": "docs/knowledge/energy-storage.md"
+    }
+  ]
+}

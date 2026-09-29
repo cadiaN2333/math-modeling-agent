@@ -18,6 +18,30 @@
 python -m pip install -e ".[dev,agent,energy]"
 ```
 
+LangChain 与向量 RAG 为可选功能，不会随基础安装加载。只启用 LangChain：
+
+```powershell
+python -m pip install -e ".[langchain]"
+```
+
+启用本地 Chroma/BGE-M3 向量检索：
+
+```powershell
+python -m pip install -e ".[rag]"
+```
+
+同时使用 LangChain 和向量 RAG 时可一次安装：
+
+```powershell
+python -m pip install -e ".[langchain,rag]"
+```
+
+首次构建向量索引时会加载或下载 BGE-M3 权重；只有显式执行下面的命令才会发生。若只使用 BM25/关键词 RAG，无需安装向量依赖或下载模型。
+
+```powershell
+python scripts\build_knowledge_index.py --manifest .\data\knowledge\manifest.json --output .\.cache\optimization-rag
+```
+
 ## 运行排班样例
 
 ```powershell
@@ -194,7 +218,17 @@ python -m math_modeling_agent.cli --request "有三名员工，林晓有急救�
 python -m math_modeling_agent.cli --solve-draft .\draft.json
 ```
 
-`--request` 只分析，不启动求解器。`--solve-draft` 会重新校验草稿，再选择已实现的领域适配器并独立检查结果。
+`--request` 只分析，不启动求解器；输出包含稳定的 `draft_hash`。`--solve-draft` 要求文件携带这同一个摘要，并重新校验草稿。若审阅后文件内容被改过，命令会拒绝求解。确认和求解由这次明确的命令调用触发。
+
+默认 `--framework native` 保持原生分析流程。可选的 `--framework langchain` 使用 LangChain `create_agent`、DeepSeek 专用集成和结构化 `ProblemAnalysis`，并可检索 HMML 与带来源的本地知识；Agent 不能确认或调用求解器，仍需用户检查草稿并通过 `--solve-draft` 明确提交。
+
+RAG 知识卡和来源清单位于 `docs\knowledge` 与 `data\knowledge\manifest.json`。无向量索引时，LangChain 路径使用 BM25/关键词检索；索引存在且模型已在本机缓存时会追加 Chroma 向量检索。`scripts\evaluate_knowledge.py --keyword-only` 可离线评测检索，不调用 DeepSeek，也不加载嵌入模型。
+
+安装并构建可选向量功能后，运行知识评测：
+
+```powershell
+python scripts\evaluate_knowledge.py
+```
 
 ## 当前模型范围
 

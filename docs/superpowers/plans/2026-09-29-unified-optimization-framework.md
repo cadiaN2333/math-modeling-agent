@@ -372,15 +372,15 @@ class ModelingService:
 
 ## 任务五：RAG 知识库与混合检索
 
-- [ ] **步骤 1：写证据结构和检索失败测试。** 测试每个结果必须含来源 ID、文件/URL、章节/页码、审核状态和问题族；来源不存在、元数据缺失和错误过滤器均返回明确错误或空结果。
-- [ ] **步骤 2：运行证据结构红灯。**
+- [x] **步骤 1：写证据结构和检索失败测试。** 测试每个结果必须含来源 ID、文件/URL、章节/页码、审核状态和问题族；来源不存在、元数据缺失和错误过滤器均返回明确错误或空结果。
+- [x] **步骤 2：运行证据结构红灯。** 首轮测试因知识模型与服务模块尚不存在而失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_knowledge_service.py -k evidence_model -q
 ```
 
 预期：`knowledge_models.py` 尚不存在。
-- [ ] **步骤 3：定义检索数据契约。**
+- [x] **步骤 3：定义检索数据契约。**
 
 ```python
 class KnowledgeChunk(BaseModel):
@@ -406,7 +406,7 @@ class RetrievedEvidence(BaseModel):
     review_status: Literal["approved"]
 ```
 
-- [ ] **步骤 4：写 `KnowledgeService` 假向量库测试。** 假向量库返回预设来源，关键词侧用固定查询验证 Reciprocal Rank Fusion 去重、顺序稳定和问题族过滤。
+- [x] **步骤 4：写 `KnowledgeService` 假向量库测试。** 假向量库返回预设来源，关键词侧用固定查询验证 Reciprocal Rank Fusion 去重、顺序稳定和问题族过滤。
 
 ```python
 class KnowledgeService(Protocol):
@@ -420,112 +420,62 @@ class KnowledgeService(Protocol):
     ) -> list[RetrievedEvidence]: ...
 ```
 
-- [ ] **步骤 5：运行检索服务红灯。**
+- [x] **步骤 5：运行检索服务红灯。** 检索实现前 5 项服务测试因模块不存在而失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_knowledge_service.py -q
 ```
 
-预期：知识分块、关键词/向量合并和证据来源测试失败。
-- [ ] **步骤 6：实现清单、分块和稳定来源定位。** 创建 `linear-modeling.md`（变量/目标/线性约束和单位）、`solver-capabilities.md`（后端适用边界）、`model-validation.md`（模型来源与独立核验）和 `energy-storage.md`（已确认的储能假设）四张中文知识卡。`data/knowledge/manifest.json` 逐条列出 ID、标题、来源 URL/路径、版本、问题族、审核状态和 Markdown 卡片路径；只收录审核过的本地知识卡及公开资料摘要。`scripts/build_knowledge_index.py` 校验清单后按 Markdown 标题切块，使用 `sha256(source_id + locator + normalized_text)` 生成稳定 chunk ID，并写入 Chroma 元数据。
-- [ ] **步骤 7：加入本地 Chroma 与嵌入提供方。** `rag` extra 使用 `langchain-chroma` 和 `langchain-huggingface`；索引保存在 `.cache/optimization-rag` 并写入 `.gitignore`，关闭 Chroma 匿名遥测。默认嵌入候选为中文多语种 BGE-M3；索引构建命令显式触发模型加载/下载，单元测试始终使用假嵌入，不自动联网。
-- [ ] **步骤 8：实现 BM25、HMML 关键词与 Chroma 向量检索的 RRF 合并。** BM25 先对文档分块召回，HMML 关键词检索返回结构化方法；按 `1 / (60 + rank)` 合并各路排名，以问题族/方法/求解器元数据过滤，返回 `RetrievedEvidence`；每个结果都保留可显示的来源，不把向量分数伪装成概率。
-- [ ] **步骤 9：把知识检索接入公共服务。** 检索证据可支持方法建议、公式和假设检查；生成模型时只接受题目/附件中的事实，RAG 数值仅可作为带来源的参考假设，并需用户确认。
-- [ ] **步骤 10：建立离线检索评测并运行 RAG 测试。** `evals/knowledge_cases.json` 包含查询和预期 source ID；报告 Recall@k、MRR、引用来源准确率和无相关证据时的拒答率。
+- [x] **步骤 6：实现清单、分块和稳定来源定位。** 创建四张中文知识卡及版本化 manifest；索引器校验仓库内相对路径，按 Markdown 标题切块，使用 `sha256(source_id + locator + normalized_text)` 生成稳定 chunk ID。
+- [x] **步骤 7：加入本地 Chroma 与嵌入提供方。** `rag` extra 使用 `langchain-chroma`、`langchain-huggingface`、Sentence Transformers 和 `rank-bm25`；索引保存在 `.cache/optimization-rag` 并被 Git 忽略，关闭 Chroma 匿名遥测。默认嵌入模型为 BGE-M3；显式运行 `build_knowledge_index.py` 才会加载/下载权重，正常测试不自动联网。
+- [x] **步骤 8：实现 BM25、HMML 关键词与 Chroma 向量检索的 RRF 合并。** BM25 关键词与可插拔向量召回按 `1 / (60 + rank)` 融合；HMML 结构化方法建议独立返回；以审核状态、问题族、求解器 ID 过滤，并保留引用来源。
+- [x] **步骤 9：把知识检索接入公共服务。** `ModelingService.retrieve_knowledge()` 按问题族/求解器检索并返回带来源证据，不会改写问题事实、模型草稿或确认摘要；卡片中的数值显式标记为参考假设。
+- [x] **步骤 10：建立离线检索评测并运行 RAG 测试。** 4 个案例评估 Recall@5、MRR、引用来源准确率和无证据拒答；关键词路径结果：`Recall@5=1.0`、`MRR=1.0`、来源准确率 `0.923`、拒答率 `1.0`。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_knowledge_service.py tests\test_knowledge_eval.py -q
 ```
 
+当前环境未安装 `rag` 可选依赖，因此没有下载 BGE-M3 权重或真正构建 Chroma 持久索引；假向量检索、BM25-only 评测和缺少依赖时的清晰错误路径均已测试。实际启用向量检索时需按 README 命令显式安装并构建本地索引。
+
 ## 任务六：LangChain `create_agent` 适配
 
-- [ ] **步骤 1：写适配层红灯测试。** 核心包在未安装 LangChain 时仍可导入；配置 `langchain` extra 后，Agent 工具使用相同 `ModelingService` 和 Pydantic DTO。
-- [ ] **步骤 2：运行适配层红灯。**
+- [x] **步骤 1：写适配层红灯测试。** 核心包在未安装 LangChain 时仍可导入；Agent 工具使用相同 `ModelingService` 和 Pydantic DTO，且工具列表不含确认/求解动作。
+- [x] **步骤 2：运行适配层红灯。** 适配器实现前 4 项测试因模块不存在而失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_langchain_adapter.py -q
 ```
 
 预期：`langchain_adapter.py` 尚不存在，测试无法构建 agent。
-- [ ] **步骤 3：新增可选依赖。** `langchain` extra 安装 `langchain>=1.0,<2` 与 `langchain-openai>=1.0,<2`；`rag` extra 安装 `langchain-chroma>=0.1.2`、`langchain-huggingface`、`sentence-transformers` 和 `rank-bm25`。普通 `pip install -e .` 不安装这些依赖。
+- [x] **步骤 3：新增可选依赖。** `langchain` extra 安装 `langchain>=1.0,<2` 与 DeepSeek 专用 `langchain-deepseek>=1.1,<2`；`rag` extra 安装 `langchain-chroma`、`langchain-huggingface`、`sentence-transformers` 和 `rank-bm25`。普通 `pip install -e .` 不安装这些依赖。
 
 安装和运行可选能力的 PowerShell 命令：
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pip install -e '.[dev,agent,langchain,rag]'
 $env:PYTHONPATH = 'D:\Agent\.worktrees\min-cost-network-flow\src'
-& 'D:\Agent\.venv\Scripts\python.exe' scripts\build_knowledge_index.py --knowledge-dir .\data\knowledge --index-dir .\.cache\optimization-rag
+& 'D:\Agent\.venv\Scripts\python.exe' scripts\build_knowledge_index.py --manifest .\data\knowledge\manifest.json --output .\.cache\optimization-rag
 ```
-- [ ] **步骤 4：实现工具封装。** RAG 检索、问题分析/草稿、IR 校验、能力查询、已确认求解、独立验证和报告各自为独立工具；求解工具只接受服务签发且与当前草稿摘要匹配的确认令牌。
-- [ ] **步骤 5：实现 `build_langchain_agent()`。** 通过 `create_agent(model=..., tools=..., response_format=...)` 组合工具；DeepSeek OpenAI 兼容客户端通过配置注入，密钥只从环境变量读取且禁止写入日志。
+- [x] **步骤 4：实现工具封装。** Agent 仅暴露 HMML 方法和已审核 RAG 知识检索；草稿校验、确认、求解、验证继续由宿主调用 `ModelingService`，确认和求解不进入模型可调用工具。
+- [x] **步骤 5：实现 `create_langchain_modeling_agent()`。** 通过 `create_agent(model=..., tools=..., response_format=ToolStrategy(ProblemAnalysis))` 组合工具；使用 `ChatDeepSeek` 专用 provider，密钥只从项目环境变量读取。
 
 ```python
-import os
-from dataclasses import dataclass
-
-from langchain.agents import AgentState, create_agent
+from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
-from langchain_core.language_models import BaseChatModel
-from langchain_core.tools import BaseTool
-from langchain_openai import ChatOpenAI
-
-
-class ModelingAgentState(AgentState):
-    session_id: str
-    draft_hash: str | None
-    workflow_state: str
-    evidence_ids: list[str]
-
-
-@dataclass(frozen=True)
-class AgentRunContext:
-    session_id: str
-    confirmation_token: ConfirmationToken | None
-
-
-def build_deepseek_chat_model() -> ChatOpenAI:
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise RuntimeError("缺少 DEEPSEEK_API_KEY")
-    return ChatOpenAI(
-        model=os.getenv("DEEPSEEK_MODEL", "deepseek-flash"),
-        api_key=api_key,
-        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-        extra_body={"thinking": {"type": "disabled"}},
-    )
-
-
-def build_modeling_tools(
-    service: ModelingService,
-    retriever: KnowledgeService,
-) -> list[BaseTool]: ...
-
-
-def build_langchain_agent(
-    service: ModelingService,
-    *,
-    model: BaseChatModel,
-    retriever: KnowledgeService,
-):
-    tools = build_modeling_tools(service, retriever)
-    return create_agent(
-        model=model,
-        tools=tools,
-        response_format=ToolStrategy(ProblemAnalysis),
-        state_schema=ModelingAgentState,
-        context_schema=AgentRunContext,
-    )
 ```
 
-DeepSeek V4.1 Flash 的工具调用默认处于思考模式；工具循环若不回传 `reasoning_content` 会失败。v1 显式关闭思考模式；启用思考模式前必须增加多轮工具历史字段的回传测试。
-- [ ] **步骤 6：添加状态和确认守门测试。** Fake model 可以提出求解工具调用，但没有由宿主在用户明确确认后注入的 `AgentRunContext.confirmation_token` 时，服务必须拒绝；旧草稿摘要也必须拒绝。LLM 工具 schema 不包含可自行填写的 `confirmed=true` 字段。
-- [ ] **步骤 7：运行适配层绿灯。**
+DeepSeek 默认思考模式关闭，以便工具往返不依赖额外 `reasoning_content` 状态；若将来启用思考模式，需增加多轮工具历史的专门测试。
+- [x] **步骤 6：添加状态和确认守门测试。** 测试确认 Agent 工具清单不含 `confirm_draft` 与 `solve_confirmed`；只有宿主/UI 显式调用 adapter 方法才能确认和求解。
+- [x] **步骤 7：运行适配层绿灯。** 5 项 LangChain adapter 测试通过，无 LangChain 可选包也可导入核心模块。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_langchain_adapter.py -q
 ```
 
-- [ ] **步骤 8：在 CLI 增加 `--framework {native,langchain}`。** 该参数仅作用于 `--request`；默认保持 `native` 以便回归对照。同一输入分别走两种编排器，必须返回兼容的 `ProblemAnalysis` 结构；LangChain 路径未配置可选依赖时返回明确安装指引。
+- [x] **步骤 8：在 CLI 增加 `--framework {native,langchain}`。** 该参数仅作用于 `--request`；默认保持 `native`。LangChain 路径返回兼容 `ProblemAnalysis`、`draft_hash` 和实际检索证据；确认仍由后续 `--solve-draft` 显式完成。
+
+当前环境没有安装 `langchain`/`langchain-deepseek` 可选依赖，Agent 构造通过注入的 fake `create_agent`/工具工厂测试；未调用 DeepSeek API。首次使用需安装可选 extra。
 
 ## 任务七：能源园区 IR 接入与回归
 
@@ -589,3 +539,6 @@ $env:PYTHONPATH = 'D:\Agent\.worktrees\min-cost-network-flow\src'
 - [x] IR 规格复核六项全部通过；边界修复的代码质量复核通过。
 - [x] 任务二领域编译器与解映射已提交：`ada8643`，并已推送至 `origin/feature/min-cost-network-flow`；编译器定向测试 `12 passed`，全库 `205 passed`。
 - [x] 任务三 OR-Tools 后端注册表已完成实现；定向测试 `10 passed`，全库 `215 passed`。网络流解保持整数精度；CP-SAT 整数表达式增加 int64 取值范围预检。代码评审代理未能及时返回，提交前执行人工检查。
+- [x] 任务四确认式 `ModelingService` 与三个领域入口迁移已提交并推送：`06421e5`；草稿哈希不匹配、重复令牌及用户未确认均不会调用求解器；全库 `223 passed`，离线 Evals `api_calls=0`。
+- [x] 任务五知识卡、带来源 RAG、BM25/Chroma 可插拔检索和离线检索 Evals 已完成实现；全库最终 `244 passed`。关键词评测 `Recall@5=1.0`、`MRR=1.0`、引用来源准确率 `0.923`、无证据拒答率 `1.0`；未安装可选向量依赖，未下载模型。
+- [x] 任务六 LangChain `create_agent`/`ChatDeepSeek` 适配和 CLI 框架选择已完成实现；适配层不暴露确认/求解工具；全库最终 `244 passed`，适配层 `5 passed`。LangChain 可选依赖未安装，使用假 Agent 完成离线适配测试，未调用 DeepSeek API。

@@ -150,3 +150,55 @@ def test_service_rejects_modified_confirmation_nonce_and_token_replay() -> None:
         service.solve_confirmed(token)
 
     assert isinstance(token, ConfirmationToken)
+
+
+def test_service_returns_rag_citations_without_inserting_them_into_problem_facts() -> None:
+    from math_modeling_agent.knowledge_models import RetrievedEvidence
+    from math_modeling_agent.modeling_service import ModelingService
+
+    class FakeKnowledgeService:
+        def __init__(self):
+            self.calls = []
+
+        def retrieve(self, query, **filters):
+            self.calls.append((query, filters))
+            return [
+                RetrievedEvidence(
+                    chunk_id="chunk-storage",
+                    source_id="storage-card",
+                    source_uri="repo://docs/knowledge/energy-storage.md",
+                    locator="储能假设 > SOC 边界",
+                    title="储能参考假设",
+                    text="SOC 10%—90% 是本项目默认参考值。",
+                    retrieval_method="keyword",
+                    rank=1,
+                    problem_families=["minimum_cost_flow"],
+                    review_status="approved",
+                )
+            ]
+
+    knowledge = FakeKnowledgeService()
+    analysis = make_ready_analysis()
+    service = ModelingService(
+        analyzer=lambda _request: analysis,
+        knowledge_service=knowledge,
+    )
+    session = service.create_draft("运输问题")
+    original_facts = list(session.analysis.known_facts)
+
+    evidence = service.retrieve_knowledge(session.session_id, top_k=2)
+
+    updated = service.get_session(session.session_id)
+    assert evidence[0].source_uri.endswith("energy-storage.md")
+    assert knowledge.calls[0][1]["problem_family"] == "minimum_cost_flow"
+    assert updated.analysis.known_facts == original_facts
+    assert updated.state == "draft"
+    assert updated.draft_hash == session.draft_hash
+
+
+def test_service_without_rag_configuration_reports_that_it_is_unavailable() -> None:
+    service = _service()
+    session = service.create_draft("运输问题")
+
+    with pytest.raises(RuntimeError, match="未配置知识检索服务"):
+        service.retrieve_knowledge(session.session_id)

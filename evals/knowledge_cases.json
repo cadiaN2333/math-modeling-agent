@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "linear-glop-capabilities",
+      "query": "连续线性规划 GLOP 求解器变量域能力",
+      "problem_family": "linear_programming",
+      "solver_ids": ["ortools_glop"],
+      "expected_source_ids": [
+        "local-solver-capabilities",
+        "local-linear-modeling"
+      ]
+    },
+    {
+      "id": "storage-soc-assumptions",
+      "query": "储能 SOC 上下限额定时长每日损耗效率",
+      "problem_family": "energy_park",
+      "solver_ids": ["ortools_scip"],
+      "expected_source_ids": [
+        "local-electric-cup-storage-assumptions",
+        "local-solver-capabilities"
+      ]
+    },
+    {
+      "id": "independent-model-validation",
+      "query": "独立验证线性约束目标值引用来源用户确认",
+      "problem_family": "linear_programming",
+      "solver_ids": ["ortools_glop"],
+      "expected_source_ids": [
+        "local-model-validation",
+        "local-linear-modeling"
+      ]
+    },
+    {
+      "id": "no-nonlinear-knowledge",
+      "query": "量子遗传算法黑箱非线性全局最优",
+      "problem_family": "nonlinear_optimization",
+      "solver_ids": [],
+      "expected_source_ids": []
+    }
+  ]
+}

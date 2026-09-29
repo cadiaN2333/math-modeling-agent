@@ -581,6 +581,63 @@ def test_cli_rejects_draft_changed_after_user_review(capsys, tmp_path, monkeypat
     assert captured.out == ""
 
 
+def test_cli_langchain_framework_returns_reviewable_draft_and_rag_sources(
+    capsys,
+) -> None:
+    from math_modeling_agent.knowledge_models import RetrievedEvidence
+    from math_modeling_agent.modeling_service import ModelingService
+    from math_modeling_agent.cli import main
+    from min_cost_flow_fixtures import make_ready_analysis
+
+    analysis = make_ready_analysis()
+    session = ModelingService().create_draft_from_analysis(analysis)
+
+    class FakeLangChainAdapter:
+        def create_draft(self, request):
+            assert request == "低成本运输"
+            return session
+
+        def get_evidence(self, session_id):
+            assert session_id == session.session_id
+            return [
+                RetrievedEvidence(
+                    chunk_id="chunk-1",
+                    source_id="local-model-validation",
+                    source_uri="repo://docs/knowledge/model-validation.md",
+                    locator="草稿确认",
+                    title="模型确认卡",
+                    text="RAG 知识不能替代题目事实。",
+                    retrieval_method="keyword",
+                    rank=1,
+                    problem_families=["minimum_cost_flow"],
+                    review_status="approved",
+                )
+            ]
+
+    exit_code = main(
+        ["--request", "低成本运输", "--framework", "langchain"],
+        langchain_agent=FakeLangChainAdapter(),
+    )
+    result = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert result["framework"] == "langchain"
+    assert len(result["draft_hash"]) == 64
+    assert result["knowledge_evidence"][0]["source_id"] == "local-model-validation"
+    assert "modeling_run" not in result
+
+
+def test_cli_rejects_langchain_framework_without_natural_language_request(capsys) -> None:
+    from math_modeling_agent.cli import main
+
+    exit_code = main(["--sample", "--framework", "langchain"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "仅适用于 --request" in captured.err
+    assert captured.out == ""
+
+
 def test_cli_ready_linear_program_request_returns_draft_without_solving(capsys, monkeypatch) -> None:
     import pytest
     from types import SimpleNamespace

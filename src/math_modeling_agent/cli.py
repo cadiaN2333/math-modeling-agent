@@ -19,6 +19,7 @@ from .energy_park_discrete import run_discrete_question_two
 from .energy_park_io import load_energy_park_directory
 from .energy_park_policy import build_energy_park_policy_report
 from .energy_park_validator import validate_typical_day
+from .knowledge_service import KnowledgeService
 from .modeling_service import ModelingReport, ModelingService
 from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
@@ -118,7 +119,27 @@ def _scenario_modeling_run_is_reportable(modeling_run_data: dict) -> bool:
     return status in {"INFEASIBLE", "UNBOUNDED"}
 
 
-def main(argv: list[str] | None = None, *, llm_client=None) -> int:
+def _local_knowledge_service() -> KnowledgeService:
+    """加载本地知识卡；只有索引存在时才尝试本地向量模型。"""
+
+    repo_root = Path(__file__).resolve().parents[2]
+    manifest = repo_root / "data" / "knowledge" / "manifest.json"
+    index_directory = repo_root / ".cache" / "optimization-rag"
+    if index_directory.is_dir():
+        return KnowledgeService.from_local_index(
+            manifest,
+            index_directory,
+            allow_model_download=False,
+        )
+    return KnowledgeService.from_manifest(manifest)
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    llm_client=None,
+    langchain_agent=None,
+) -> int:
     """运行样例、JSON 输入或 DeepSeek 自然语言分析。"""
 
     parser = argparse.ArgumentParser(description="可验证的运筹优化数学建模 Agent")
@@ -169,6 +190,12 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         metavar="JSON文件",
         help="求解经过用户审阅的结构化分析 JSON",
     )
+    parser.add_argument(
+        "--framework",
+        choices=["native", "langchain"],
+        default="native",
+        help="--request 的分析编排器；默认使用原生适配器",
+    )
     input_group.add_argument(
         "--scenario-file",
         type=Path,
@@ -176,6 +203,10 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         help="重算基准线性模型与多个命名情景并比较结果",
     )
     args = parser.parse_args(argv)
+
+    if args.framework == "langchain" and args.request is None:
+        print("--framework 仅适用于 --request", file=sys.stderr)
+        return 2
 
     if args.scenario_file is not None:
         try:
@@ -375,14 +406,31 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
 
     if args.request is not None:
         try:
-            service = ModelingService(
-                analyzer=lambda request: analyze_problem(
-                    request,
-                    client=llm_client,
+            if args.framework == "langchain":
+                if langchain_agent is None:
+                    from .langchain_adapter import create_langchain_modeling_agent
+
+                    service = ModelingService(
+                        knowledge_service=_local_knowledge_service()
+                    )
+                    langchain_agent = create_langchain_modeling_agent(service)
+                session = langchain_agent.create_draft(args.request)
+                analysis = session.analysis
+                evidence = (
+                    langchain_agent.get_evidence(session.session_id)
+                    if hasattr(langchain_agent, "get_evidence")
+                    else []
                 )
-            )
-            session = service.create_draft(args.request)
-            analysis = session.analysis
+            else:
+                service = ModelingService(
+                    analyzer=lambda request: analyze_problem(
+                        request,
+                        client=llm_client,
+                    )
+                )
+                session = service.create_draft(args.request)
+                analysis = session.analysis
+                evidence = []
         except (RuntimeError, ValueError) as exc:
             print(f"自然语言分析失败：{exc}", file=sys.stderr)
             return 2
@@ -391,6 +439,10 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         payload = {
             "analysis": analysis.model_dump(mode="json"),
             "draft_hash": session.draft_hash,
+            "framework": args.framework,
+            "knowledge_evidence": [
+                item.model_dump(mode="json") for item in evidence
+            ],
             "method_recommendations": {
                 task_id: [asdict(item) for item in items]
                 for task_id, items in recommendations.items()
