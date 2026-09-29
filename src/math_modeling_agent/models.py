@@ -1,7 +1,7 @@
 from math import isfinite
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class Employee(BaseModel):
@@ -117,6 +117,8 @@ class MinCostFlowProblem(BaseModel):
 class LinearVariable(BaseModel):
     """线性规划决策变量的名称、单位和变量域。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1)
     unit: str = Field(min_length=1)
     domain: Literal["continuous", "integer", "binary"] = "continuous"
@@ -124,6 +126,8 @@ class LinearVariable(BaseModel):
 
 class LinearTerm(BaseModel):
     """线性表达式中的一个系数—变量项。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     variable: str = Field(min_length=1)
     coefficient: float
@@ -139,6 +143,8 @@ class LinearTerm(BaseModel):
 class LinearObjective(BaseModel):
     """连续 LP 或 MILP 的单一线性目标函数。"""
 
+    model_config = ConfigDict(extra="forbid")
+
     direction: Literal["maximize", "minimize"]
     terms: list[LinearTerm] = Field(min_length=1)
 
@@ -152,6 +158,8 @@ class LinearObjective(BaseModel):
 
 class LinearConstraint(BaseModel):
     """连续 LP 或 MILP 的一条线性约束。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
     terms: list[LinearTerm] = Field(min_length=1)
@@ -175,6 +183,8 @@ class LinearConstraint(BaseModel):
 
 class LinearProgramProblem(BaseModel):
     """连续、整数或二进制变量构成的单目标线性规划求解输入。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     variables: list[LinearVariable] = Field(min_length=1)
     objective: LinearObjective

@@ -15,7 +15,7 @@
 - 新建 `src/math_modeling_agent/scenario_models.py`：情景输入结构及变量签名校验。
 - 新建 `src/math_modeling_agent/scenario_analysis.py`：运行基准与情景模型、计算安全的差异工件。
 - 修改 `src/math_modeling_agent/cli.py`：新增 `--scenario-file` JSON 输入入口。
-- 修改 `tests/test_models.py`、新建 `tests/test_scenario_analysis.py`、扩展 `tests/test_cli.py`。
+- 新建 `tests/test_scenario_analysis.py`、扩展 `tests/test_cli.py`。
 - 修改 `README.md`：解释情景模型的可比条件、状态和 PowerShell 用法。
 
 ## 任务一：情景输入契约
@@ -38,7 +38,7 @@ class LinearScenario(BaseModel):
     problem: LinearProgramProblem
 
 
-class LinearScenarioRequest(BaseModel):
+class ScenarioAnalysisRequest(BaseModel):
     base_problem: LinearProgramProblem
     scenarios: list[LinearScenario] = Field(min_length=1, max_length=20)
 ```
@@ -75,7 +75,7 @@ class LinearScenarioRequest(BaseModel):
 ## 任务三：CLI 场景文件入口
 
 - [x] **步骤 1：写失败测试。** CLI 读取含连续模型和容量情景的 JSON，输出基准/场景状态与差值；非法 JSON、变量签名不一致返回退出码 `2`；不可行情景显示 `INFEASIBLE` 但不生成数值差。
-- [x] **步骤 2：实现 `--scenario-file <路径>`。** 将参数加入现有互斥输入组；用 `LinearScenarioRequest.model_validate_json` 或 `model_validate(json.loads(...))` 复核输入；调用 `run_scenario_analysis` 并用统一 JSON 输出函数写结果。求解器不可用或可行解未通过 validator 时返回 `1`；输入文件错误返回 `2`；合法无解情景本身不算 CLI 错误。
+- [x] **步骤 2：实现 `--scenario-file <路径>`。** 将参数加入现有互斥输入组；用 `ScenarioAnalysisRequest.model_validate_json` 或 `model_validate(json.loads(...))` 复核输入；调用 `run_scenario_analysis` 并用统一 JSON 输出函数写结果。求解器不可用或可行解未通过 validator 时返回 `1`；输入文件错误返回 `2`；合法无解情景本身不算 CLI 错误。
 - [x] **步骤 3：运行 CLI 定向测试。**
 
 ```powershell
@@ -99,12 +99,14 @@ python -m math_modeling_agent.cli --scenario-file .\scenarios.json
 
 全量测试必须通过；离线 Evals 保持 `api_calls=0`，现有 12 个案例继续有效。
 
-- [ ] **步骤 3：提交并推送。** `git diff --check` 通过后，用中文提交说明提交；推送当前 `feature/min-cost-network-flow` 到 `origin`，不合并到 main、不强推。
+- [x] **步骤 3：提交并推送。** `git diff --check` 通过后，用中文提交说明提交；推送当前 `feature/min-cost-network-flow` 到 `origin`，不合并到 main、不强推。
 
 ## 执行记录
 
 - [x] 情景请求校验变量签名、scenario_id 唯一和情景数量上限。
 - [x] 基准与情景分别求解并调用独立 validator；只对同目标函数的可验证解计算目标差，不可行情景不生成伪变量差。
 - [x] CLI `--scenario-file`、README 情景 JSON 示例和错误处理已接通。
-- [x] 全量测试 `156 passed`；离线 Evals 为 12 个案例、`api_calls=0`。
-- [ ] 提交并推送 GitHub。
+- [x] 全量测试 `162 passed`；离线 Evals 为 12 个案例、`api_calls=0`。
+- [x] 提交并推送 GitHub（提交 `90294d3`）。
+- [x] 复核修正：拒绝线性模型未知字段；目标系数必须精确相同才比较目标值；仅基准目标严格为零时省略相对百分比；无效 UTF-8 情景文件按输入错误返回退出码 `2`。
+- [x] 情景请求、情景和线性模型各层级均拒绝未知字段；复核计划中类型名与实现一致。

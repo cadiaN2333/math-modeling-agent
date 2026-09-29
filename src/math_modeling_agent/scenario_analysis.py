@@ -1,8 +1,6 @@
 """重算命名线性情景并安全比较求解结果。"""
 
 from dataclasses import dataclass
-from math import isclose
-
 from .linear_agent import LinearModelingRun, run_linear_modeling
 from .models import LinearProgramProblem
 from .scenario_models import ScenarioAnalysisRequest
@@ -54,12 +52,7 @@ def _objective_is_unchanged(
         term.variable: term.coefficient
         for term in scenario_problem.objective.terms
     }
-    if base_terms.keys() != scenario_terms.keys():
-        return False
-    return all(
-        isclose(base_terms[name], scenario_terms[name], rel_tol=1e-12, abs_tol=1e-12)
-        for name in base_terms
-    )
+    return base_terms == scenario_terms
 
 
 def run_scenario_analysis(
@@ -103,7 +96,7 @@ def run_scenario_analysis(
                     note = "求解结果缺少目标值，无法计算目标差。"
                 else:
                     objective_delta = scenario_objective - base_objective
-                    if abs(base_objective) > 1e-12:
+                    if base_objective != 0:
                         relative_delta = objective_delta / abs(base_objective) * 100
                     if (
                         base_run.solver_result.status != "OPTIMAL"

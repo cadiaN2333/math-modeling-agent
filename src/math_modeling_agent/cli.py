@@ -160,6 +160,9 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         except OSError as exc:
             print(f"无法读取情景文件：{exc}", file=sys.stderr)
             return 2
+        except UnicodeDecodeError as exc:
+            print(f"情景文件必须使用 UTF-8 编码：{exc}", file=sys.stderr)
+            return 2
         except json.JSONDecodeError as exc:
             print(f"情景 JSON 格式错误：{exc}", file=sys.stderr)
             return 2

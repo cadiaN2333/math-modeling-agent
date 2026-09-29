@@ -421,6 +421,58 @@ def test_cli_scenario_file_rejects_malformed_json(capsys, tmp_path) -> None:
     assert captured.out == ""
 
 
+def test_cli_scenario_file_rejects_invalid_utf8(capsys, tmp_path) -> None:
+    from math_modeling_agent import cli
+
+    scenario_path = tmp_path / "invalid-encoding.json"
+    scenario_path.write_bytes(b"{\xff}")
+
+    exit_code = cli.main(["--scenario-file", str(scenario_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "UTF-8" in captured.err
+    assert captured.out == ""
+
+
+def test_cli_scenario_file_rejects_unknown_variable_fields(capsys, tmp_path) -> None:
+    from math_modeling_agent import cli
+
+    request = {
+        "base_problem": {
+            "variables": [{"name": "x", "unit": "件", "domian": "integer"}],
+            "objective": {
+                "direction": "maximize",
+                "terms": [{"variable": "x", "coefficient": 1}],
+            },
+            "constraints": [],
+        },
+        "scenarios": [
+            {
+                "scenario_id": "same_typo",
+                "description": "变量域拼写错误也不能静默忽略",
+                "problem": {
+                    "variables": [{"name": "x", "unit": "件", "domian": "integer"}],
+                    "objective": {
+                        "direction": "maximize",
+                        "terms": [{"variable": "x", "coefficient": 1}],
+                    },
+                    "constraints": [],
+                },
+            }
+        ],
+    }
+    scenario_path = tmp_path / "unknown-variable-field.json"
+    scenario_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+
+    exit_code = cli.main(["--scenario-file", str(scenario_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "domian" in captured.err
+    assert captured.out == ""
+
+
 def test_cli_scenario_file_rejects_incompatible_variable_domain(
     capsys,
     tmp_path,

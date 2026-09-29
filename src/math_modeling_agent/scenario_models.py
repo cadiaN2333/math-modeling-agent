@@ -1,12 +1,14 @@
 """定义基准线性模型和命名情景的输入契约。"""
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import LinearProgramProblem
 
 
 class LinearScenario(BaseModel):
     """一个完整的线性模型情景。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     scenario_id: str = Field(min_length=1)
     description: str = Field(min_length=1)
@@ -15,6 +17,8 @@ class LinearScenario(BaseModel):
 
 class ScenarioAnalysisRequest(BaseModel):
     """包含基准模型和一个或多个情景模型的比较请求。"""
+
+    model_config = ConfigDict(extra="forbid")
 
     base_problem: LinearProgramProblem
     scenarios: list[LinearScenario] = Field(min_length=1, max_length=20)

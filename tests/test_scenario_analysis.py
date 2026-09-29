@@ -104,6 +104,39 @@ def test_scenario_request_rejects_duplicate_ids_and_changed_variable_signature()
         )
 
 
+def test_scenario_request_rejects_unknown_fields_at_every_level() -> None:
+    from math_modeling_agent.scenario_models import (
+        LinearScenario,
+        ScenarioAnalysisRequest,
+    )
+
+    problem = _linear_problem(10)
+    with pytest.raises(ValidationError, match="unexpected_field"):
+        LinearScenario.model_validate(
+            {
+                "scenario_id": "base",
+                "description": "测试未知字段",
+                "problem": problem.model_dump(mode="json"),
+                "unexpected_field": True,
+            }
+        )
+
+    with pytest.raises(ValidationError, match="unexpected_field"):
+        ScenarioAnalysisRequest.model_validate(
+            {
+                "base_problem": problem.model_dump(mode="json"),
+                "scenarios": [
+                    {
+                        "scenario_id": "base",
+                        "description": "基准情景",
+                        "problem": problem.model_dump(mode="json"),
+                    }
+                ],
+                "unexpected_field": True,
+            }
+        )
+
+
 def test_scenario_analysis_reports_objective_and_variable_deltas() -> None:
     from math_modeling_agent.scenario_analysis import run_scenario_analysis
     from math_modeling_agent.scenario_models import (
@@ -158,6 +191,55 @@ def test_scenario_with_changed_objective_does_not_report_objective_delta() -> No
     assert scenario.relative_objective_delta_percent is None
     assert scenario.variable_deltas_from_base == pytest.approx({"x": -2})
     assert "目标函数" in scenario.objective_comparison_note
+
+
+def test_near_but_different_objective_coefficients_are_not_compared() -> None:
+    from math_modeling_agent.scenario_analysis import run_scenario_analysis
+    from math_modeling_agent.scenario_models import (
+        LinearScenario,
+        ScenarioAnalysisRequest,
+    )
+
+    request = ScenarioAnalysisRequest(
+        base_problem=_linear_problem(10, objective_coefficient=3.0),
+        scenarios=[
+            LinearScenario(
+                scenario_id="slightly_different_price",
+                description="目标系数存在微小变化",
+                problem=_linear_problem(10, objective_coefficient=3.0000000000005),
+            )
+        ],
+    )
+
+    scenario = run_scenario_analysis(request).scenario_runs[0]
+
+    assert scenario.objective_delta_from_base is None
+    assert scenario.relative_objective_delta_percent is None
+    assert "目标函数" in scenario.objective_comparison_note
+
+
+def test_small_nonzero_base_objective_keeps_relative_percentage() -> None:
+    from math_modeling_agent.scenario_analysis import run_scenario_analysis
+    from math_modeling_agent.scenario_models import (
+        LinearScenario,
+        ScenarioAnalysisRequest,
+    )
+
+    request = ScenarioAnalysisRequest(
+        base_problem=_linear_problem(5e-13, objective_coefficient=1),
+        scenarios=[
+            LinearScenario(
+                scenario_id="double_value",
+                description="目标值翻倍",
+                problem=_linear_problem(1e-12, objective_coefficient=1),
+            )
+        ],
+    )
+
+    scenario = run_scenario_analysis(request).scenario_runs[0]
+
+    assert scenario.objective_delta_from_base == pytest.approx(5e-13)
+    assert scenario.relative_objective_delta_percent == pytest.approx(100)
 
 
 def test_infeasible_scenario_has_status_but_no_fabricated_deltas() -> None:
