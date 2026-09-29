@@ -21,11 +21,7 @@ from .models import (
     SchedulingProblem,
     Shift,
 )
-from .retriever import (
-    HMMLRetriever,
-    MethodRecommendation,
-    prioritize_compatible_linear_methods,
-)
+from .retriever import HMMLRetriever, MethodRecommendation
 
 
 class AnalysisSubtask(BaseModel):
@@ -666,19 +662,22 @@ def retrieve_methods_for_subtasks(
 
     method_retriever = retriever or HMMLRetriever()
     recommendations_by_task = {}
-    has_discrete_variables = any(
-        variable.domain != "continuous"
-        for variable in analysis.linear_program_draft.variables
-    )
+    required_method_id = None
+    if analysis.problem_family == "linear_programming":
+        has_discrete_variables = any(
+            variable.domain != "continuous"
+            for variable in analysis.linear_program_draft.variables
+        )
+        required_method_id = (
+            "integer_programming"
+            if has_discrete_variables
+            else "continuous_linear_programming"
+        )
     for task in analysis.subtasks:
         recommendations = method_retriever.retrieve(
             problem_description=task.hmml_problem_query,
             desired_outcome=task.hmml_goal_query,
+            required_method_id=required_method_id,
         )
-        if analysis.problem_family == "linear_programming":
-            recommendations = prioritize_compatible_linear_methods(
-                recommendations,
-                has_discrete_variables=has_discrete_variables,
-            )
         recommendations_by_task[task.task_id] = recommendations
     return recommendations_by_task

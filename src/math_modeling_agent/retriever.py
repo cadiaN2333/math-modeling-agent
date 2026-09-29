@@ -26,40 +26,6 @@ class MethodRecommendation:
     relevance_score: float
 
 
-def prioritize_compatible_linear_methods(
-    recommendations: list[MethodRecommendation],
-    *,
-    has_discrete_variables: bool,
-) -> list[MethodRecommendation]:
-    """把与变量域匹配的线性求解方法置顶并移除不兼容后端。"""
-
-    preferred_method_id = (
-        "integer_programming"
-        if has_discrete_variables
-        else "continuous_linear_programming"
-    )
-    incompatible_method_id = (
-        "continuous_linear_programming"
-        if has_discrete_variables
-        else "integer_programming"
-    )
-    compatible = [
-        method
-        for method in recommendations
-        if method.method_id != incompatible_method_id
-    ]
-    preferred = next(
-        (method for method in compatible if method.method_id == preferred_method_id),
-        None,
-    )
-    if preferred is None:
-        return compatible
-    return [
-        preferred,
-        *(method for method in compatible if method.method_id != preferred_method_id),
-    ]
-
-
 def _keyword_hits(text: str, keywords: list[str]) -> int:
     """统计知识卡片关键词在查询文本中的命中数。"""
 
@@ -82,19 +48,26 @@ class HMMLRetriever:
         problem_description: str,
         desired_outcome: str = "",
         top_k: int = 3,
+        required_method_id: str | None = None,
     ) -> list[MethodRecommendation]:
-        """分别匹配问题描述和目标，再合并为排序分数。"""
+        """分别匹配问题描述和目标；可按已知变量域限定兼容方法。"""
 
         if top_k <= 0:
             raise ValueError("top_k 必须是正整数")
 
-        if not problem_description.strip() and not desired_outcome.strip():
+        if (
+            not problem_description.strip()
+            and not desired_outcome.strip()
+            and required_method_id is None
+        ):
             return []
 
         candidates: list[MethodRecommendation] = []
         for domain in self.library.domains:
             for subdomain in domain.subdomains:
                 for method in subdomain.methods:
+                    if required_method_id is not None and method.id != required_method_id:
+                        continue
                     problem_score = self._hierarchy_score(
                         problem_description,
                         domain,
@@ -111,7 +84,7 @@ class HMMLRetriever:
                     )
 
                     relevance_score = 0.7 * problem_score + 0.3 * goal_score
-                    if relevance_score <= 0:
+                    if relevance_score <= 0 and method.id != required_method_id:
                         continue
 
                     candidates.append(

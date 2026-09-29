@@ -5,11 +5,7 @@ from dataclasses import dataclass
 from .linear_solver import LinearSolverResult, solve_linear_program
 from .linear_validator import LinearValidationReport, validate_linear_solution
 from .models import LinearProgramProblem
-from .retriever import (
-    HMMLRetriever,
-    MethodRecommendation,
-    prioritize_compatible_linear_methods,
-)
+from .retriever import HMMLRetriever, MethodRecommendation
 
 
 @dataclass
@@ -54,6 +50,11 @@ def run_linear_modeling(problem: LinearProgramProblem) -> LinearModelingRun:
     has_discrete_variables = any(
         variable.domain != "continuous" for variable in problem.variables
     )
+    required_method_id = (
+        "integer_programming"
+        if has_discrete_variables
+        else "continuous_linear_programming"
+    )
     if has_discrete_variables:
         desired_outcome = "使用整数/混合整数线性规划和 SCIP 满足线性约束并优化单一目标函数。"
     else:
@@ -61,11 +62,9 @@ def run_linear_modeling(problem: LinearProgramProblem) -> LinearModelingRun:
     retrieved_methods = HMMLRetriever().retrieve(
         problem_description=_describe_linear_program(problem),
         desired_outcome=desired_outcome,
+        required_method_id=required_method_id,
     )
-    method_recommendations = prioritize_compatible_linear_methods(
-        retrieved_methods,
-        has_discrete_variables=has_discrete_variables,
-    )
+    method_recommendations = retrieved_methods
     solver_result = solve_linear_program(problem)
 
     if solver_result.status not in {"OPTIMAL", "FEASIBLE"}:

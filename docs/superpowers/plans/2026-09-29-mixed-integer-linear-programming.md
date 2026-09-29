@@ -101,7 +101,7 @@
 
 - [x] 内部模型保留连续变量兼容，新增 integer/binary 域；GLOP/SCIP 自动分流并记录实际后端。
 - [x] Validator 独立检查整数性、0/1 域、线性约束和目标值；SCIP 不可用时不返回伪解。
-- [x] DeepSeek Draft Schema、旧 Draft 兼容、HMML 方法能力过滤、Evals 整数案例和已确认 Draft CLI 均已接通。
+- [x] DeepSeek Draft Schema、旧 Draft 兼容、HMML 方法能力过滤、Evals 整数案例和已确认 Draft CLI 均已接通；required method 在 top-k 截断前筛选，避免弱查询丢掉与变量域匹配的求解器。
 - [x] DeepSeek 单案例在线 Evals：`mixed_integer_linear_programming_integer_product` 通过 1/1；题干明确单位，SCIP 解为 `x=2`、目标值 2，validator 通过。
 - [x] 全量测试通过：`149 passed`，仅有 3 条已知 OR-Tools/SWIG 弃用警告。
 - [ ] 以中文提交本轮改动；不合并或推送分支。

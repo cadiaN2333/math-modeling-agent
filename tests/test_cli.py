@@ -483,8 +483,8 @@ def test_cli_integer_draft_recommends_scip_before_user_confirmation(
                 objective="最大化产量。",
                 data_needed=[],
                 depends_on=[],
-                hmml_problem_query="混合整数线性规划，x为整数变量，资源约束为2x不超过5",
-                hmml_goal_query="最大化整数产量",
+                hmml_problem_query="生产计划与资源约束",
+                hmml_goal_query="最大化产量",
             )
         ],
         scheduling_draft=SchedulingDraft(

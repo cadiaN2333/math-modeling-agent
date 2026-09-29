@@ -62,6 +62,21 @@ def test_retrieval_ranks_scip_for_mixed_integer_linear_programming() -> None:
     assert integer_method.solver == "OR-Tools SCIP"
 
 
+def test_retrieval_can_require_compatible_method_beyond_top_k() -> None:
+    from math_modeling_agent.retriever import HMMLRetriever
+
+    recommendations = HMMLRetriever().retrieve(
+        problem_description="生产计划与资源约束",
+        desired_outcome="最大化产量",
+        top_k=1,
+        required_method_id="integer_programming",
+    )
+
+    assert len(recommendations) == 1
+    assert recommendations[0].method_id == "integer_programming"
+    assert recommendations[0].solver == "OR-Tools SCIP"
+
+
 def test_retrieval_returns_no_candidates_for_unrelated_text() -> None:
     from math_modeling_agent.retriever import HMMLRetriever
 
