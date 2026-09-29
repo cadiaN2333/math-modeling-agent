@@ -254,8 +254,8 @@ def compile_min_cost_flow_problem(
 
 ## 任务三：求解器能力注册表
 
-- [ ] **步骤 1：写后端选择红灯测试。** 全连续线性 formulation 选择 GLOP；含连续与离散变量的线性 formulation 选择 SCIP；全整数且系数可精确整数化的排班 formulation 选择 CP-SAT；网络流 formulation 优先选择 SimpleMinCostFlow。无法兼容的 formulation 返回 `UNSUPPORTED_MODEL`，不自动删约束。
-- [ ] **步骤 2：运行后端红灯。**
+- [x] **步骤 1：写后端选择红灯测试。** 全连续线性 formulation 选择 GLOP；含连续与离散变量的线性 formulation 选择 SCIP；全整数且系数可精确整数化的排班 formulation 选择 CP-SAT；网络流 formulation 优先选择 SimpleMinCostFlow。无法兼容的 formulation 返回 `UNSUPPORTED_MODEL`，不自动删约束。
+- [x] **步骤 2：运行后端红灯。** 注册表实现前 7 项测试因模块不存在而失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_registry.py -q
@@ -263,7 +263,7 @@ def compile_min_cost_flow_problem(
 
 预期：注册表和 `OptimizationResult` 尚不存在。
 
-- [ ] **步骤 3：定义后端接口与能力。**
+- [x] **步骤 3：定义后端接口与能力。**
 
 ```python
 from dataclasses import dataclass
@@ -287,9 +287,9 @@ class SolverBackend(Protocol):
     def solve(self, problem: OptimizationIR) -> OptimizationResult: ...
 ```
 
-- [ ] **步骤 4：实现 IR 到现有 OR-Tools 后端的转换。** LP/MILP 编译线性约束与变量上下界；CP-SAT 路径拒绝非整数系数和连续变量；SimpleMinCostFlow 只接受已校验网络流 formulation。
-- [ ] **步骤 5：实现 `SolverRegistry` 和稳定求解结果。** `OptimizationResult` 包含状态、目标值、变量/弧解、后端编号和求解说明；非可行状态不得带伪造数值解。
-- [ ] **步骤 6：运行后端绿灯。**
+- [x] **步骤 4：实现 IR 到现有 OR-Tools 后端的转换。** GLOP 求解纯连续线性模型；SCIP 求解混合整数模型及 CP-SAT 不兼容的线性模型；CP-SAT 拒绝连续变量、无界整数变量和非整数数据；SimpleMinCostFlow 只接收结构化网络 formulation，不从文本重建图。
+- [x] **步骤 5：实现 `SolverRegistry` 和稳定求解结果。** `OptimizationResult` 包含状态、目标值、变量/弧解、后端编号和求解说明；非可行状态不得带伪造数值解，网络流整数解和费用保持整数精度。
+- [x] **步骤 6：运行后端绿灯。** 定向测试 `10 passed`，完整回归 `215 passed`。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_registry.py -q
@@ -586,3 +586,5 @@ $env:PYTHONPATH = 'D:\Agent\.worktrees\min-cost-network-flow\src'
 - [x] 任务一 IR 模型与测试已提交：`8f66390`；定向测试 29 项通过。
 - [x] 代码复核发现二进制变量单边界越界问题，已补回归测试并修复：`78ad84a`；定向测试 31 项通过。
 - [x] IR 规格复核六项全部通过；边界修复的代码质量复核通过。
+- [x] 任务二领域编译器与解映射已提交：`ada8643`，并已推送至 `origin/feature/min-cost-network-flow`；编译器定向测试 `12 passed`，全库 `205 passed`。
+- [x] 任务三 OR-Tools 后端注册表已完成实现；定向测试 `10 passed`，全库 `215 passed`。网络流解保持整数精度；CP-SAT 整数表达式增加 int64 取值范围预检。代码评审代理未能及时返回，提交前执行人工检查。
