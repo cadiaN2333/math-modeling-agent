@@ -122,6 +122,51 @@ python -m math_modeling_agent.cli --request "单一产品x的产量必须是非�
 
 保存并检查 Draft 中变量 `x` 的 `domain` 为 `integer` 后，沿用 `--solve-draft` 入口求解；结果会标明 `solver_name: "SCIP"`，并由 validator 检查整数性、二进制取值、约束及目标值。
 
+## 线性模型情景重算
+
+`--scenario-file` 接收一个基准线性模型和 1—20 个完整情景模型。基准和情景必须使用相同的变量名称、单位与 domain；约束可变化。目标函数相同时报告目标值差和变量差；目标函数改变时仍分别求解，但不把不同目标下的目标值相减。不可行情景会保留 `INFEASIBLE` 状态，不生成虚假的变量差。
+
+示例 `scenarios.json`：
+
+```json
+{
+  "base_problem": {
+    "variables": [{"name": "x", "unit": "件", "domain": "continuous"}],
+    "objective": {
+      "direction": "maximize",
+      "terms": [{"variable": "x", "coefficient": 3}]
+    },
+    "constraints": [
+      {"name": "capacity", "terms": [{"variable": "x", "coefficient": 1}], "relation": "<=", "rhs": 10},
+      {"name": "nonnegative", "terms": [{"variable": "x", "coefficient": 1}], "relation": ">=", "rhs": 0}
+    ]
+  },
+  "scenarios": [
+    {
+      "scenario_id": "capacity_8",
+      "description": "产能上限降低到8件",
+      "problem": {
+        "variables": [{"name": "x", "unit": "件", "domain": "continuous"}],
+        "objective": {
+          "direction": "maximize",
+          "terms": [{"variable": "x", "coefficient": 3}]
+        },
+        "constraints": [
+          {"name": "capacity", "terms": [{"variable": "x", "coefficient": 1}], "relation": "<=", "rhs": 8},
+          {"name": "nonnegative", "terms": [{"variable": "x", "coefficient": 1}], "relation": ">=", "rhs": 0}
+        ]
+      }
+    }
+  ]
+}
+```
+
+运行比较：
+
+```powershell
+python -m math_modeling_agent.cli --scenario-file .\scenarios.json
+```
+
 ## HMML 方法检索
 
 项目使用领域、子领域、方法节点三层结构保存建模知识，并在求解前根据问题描述和目标推荐方法。知识库范围、检索打分和当前支持边界见 docs/HMML设计说明.md。

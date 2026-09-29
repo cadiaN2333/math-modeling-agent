@@ -26,6 +26,8 @@ from .linear_agent import run_linear_modeling
 from .min_cost_flow_agent import run_min_cost_flow_modeling
 from .problem_io import load_problem_file
 from .sample_data import make_sample_problem
+from .scenario_analysis import run_scenario_analysis
+from .scenario_models import ScenarioAnalysisRequest
 
 
 def _escape_unencodable_json_characters(text: str, encoding: str) -> str:
@@ -83,6 +85,16 @@ def _modeling_run_is_valid(modeling_run_data: dict) -> bool:
     )
 
 
+def _scenario_modeling_run_is_reportable(modeling_run_data: dict) -> bool:
+    """允许将无解/无界作为有效情景结论，但拒绝未完成或无效结果。"""
+
+    status = modeling_run_data["solver_result"]["status"]
+    if status in {"OPTIMAL", "FEASIBLE"}:
+        validation_report = modeling_run_data["validation_report"]
+        return validation_report is not None and validation_report["is_valid"]
+    return status in {"INFEASIBLE", "UNBOUNDED"}
+
+
 def main(argv: list[str] | None = None, *, llm_client=None) -> int:
     """运行样例、JSON 输入或 DeepSeek 自然语言分析。"""
 
@@ -134,7 +146,43 @@ def main(argv: list[str] | None = None, *, llm_client=None) -> int:
         metavar="JSON文件",
         help="求解经过用户审阅的结构化分析 JSON",
     )
+    input_group.add_argument(
+        "--scenario-file",
+        type=Path,
+        metavar="JSON文件",
+        help="重算基准线性模型与多个命名情景并比较结果",
+    )
     args = parser.parse_args(argv)
+
+    if args.scenario_file is not None:
+        try:
+            document = json.loads(args.scenario_file.read_text(encoding="utf-8-sig"))
+        except OSError as exc:
+            print(f"无法读取情景文件：{exc}", file=sys.stderr)
+            return 2
+        except json.JSONDecodeError as exc:
+            print(f"情景 JSON 格式错误：{exc}", file=sys.stderr)
+            return 2
+
+        try:
+            request = ScenarioAnalysisRequest.model_validate(document)
+            result = run_scenario_analysis(request)
+        except ValidationError as exc:
+            print(f"情景模型校验失败：{exc}", file=sys.stderr)
+            return 2
+        except (RuntimeError, ValueError) as exc:
+            print(f"情景分析失败：{exc}", file=sys.stderr)
+            return 1
+
+        payload = asdict(result)
+        _print_json(payload)
+        modeling_runs = [
+            payload["base_run"],
+            *(scenario["modeling_run"] for scenario in payload["scenario_runs"]),
+        ]
+        return 0 if all(
+            _scenario_modeling_run_is_reportable(run) for run in modeling_runs
+        ) else 1
 
     if args.energy_park_q5 is not None:
         try:

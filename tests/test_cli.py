@@ -332,6 +332,145 @@ def test_cli_solve_confirmed_integer_linear_draft_uses_scip(capsys, tmp_path) ->
     assert result["modeling_run"]["validation_report"]["is_valid"] is True
 
 
+def test_cli_scenario_file_reports_validated_objective_and_variable_deltas(
+    capsys,
+    tmp_path,
+) -> None:
+    from math_modeling_agent import cli
+    from math_modeling_agent.models import (
+        LinearConstraint,
+        LinearObjective,
+        LinearProgramProblem,
+        LinearTerm,
+        LinearVariable,
+    )
+    from math_modeling_agent.scenario_models import (
+        LinearScenario,
+        ScenarioAnalysisRequest,
+    )
+
+    def make_problem(capacity: float, minimum: float = 0) -> LinearProgramProblem:
+        return LinearProgramProblem(
+            variables=[LinearVariable(name="x", unit="件")],
+            objective=LinearObjective(
+                direction="maximize",
+                terms=[LinearTerm(variable="x", coefficient=3)],
+            ),
+            constraints=[
+                LinearConstraint(
+                    name="capacity",
+                    terms=[LinearTerm(variable="x", coefficient=1)],
+                    relation="<=",
+                    rhs=capacity,
+                ),
+                LinearConstraint(
+                    name="nonnegative",
+                    terms=[LinearTerm(variable="x", coefficient=1)],
+                    relation=">=",
+                    rhs=minimum,
+                ),
+            ],
+        )
+
+    request = ScenarioAnalysisRequest(
+        base_problem=make_problem(10),
+        scenarios=[
+            LinearScenario(
+                scenario_id="capacity_8",
+                description="将产能上限降低到8件",
+                problem=make_problem(8),
+            ),
+            LinearScenario(
+                scenario_id="infeasible",
+                description="最低产量超过容量",
+                problem=make_problem(4, minimum=10),
+            ),
+        ],
+    )
+    request_path = tmp_path / "scenarios.json"
+    request_path.write_text(
+        json.dumps(request.model_dump(mode="json"), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(["--scenario-file", str(request_path)])
+    result = json.loads(capsys.readouterr().out)
+    scenario = result["scenario_runs"][0]
+
+    assert exit_code == 0
+    assert result["base_run"]["solver_result"]["objective_value"] == pytest.approx(30)
+    assert scenario["modeling_run"]["solver_result"]["objective_value"] == pytest.approx(24)
+    assert scenario["objective_delta_from_base"] == pytest.approx(-6)
+    assert scenario["variable_deltas_from_base"] == pytest.approx({"x": -2})
+    infeasible = result["scenario_runs"][1]
+    assert infeasible["modeling_run"]["solver_result"]["status"] == "INFEASIBLE"
+    assert infeasible["objective_delta_from_base"] is None
+
+
+def test_cli_scenario_file_rejects_malformed_json(capsys, tmp_path) -> None:
+    from math_modeling_agent import cli
+
+    scenario_path = tmp_path / "invalid-scenarios.json"
+    scenario_path.write_text("{ invalid", encoding="utf-8")
+
+    exit_code = cli.main(["--scenario-file", str(scenario_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "JSON" in captured.err
+    assert captured.out == ""
+
+
+def test_cli_scenario_file_rejects_incompatible_variable_domain(
+    capsys,
+    tmp_path,
+) -> None:
+    from math_modeling_agent import cli
+    from math_modeling_agent.models import (
+        LinearConstraint,
+        LinearObjective,
+        LinearProgramProblem,
+        LinearTerm,
+        LinearVariable,
+    )
+    def make_problem(domain: str) -> LinearProgramProblem:
+        return LinearProgramProblem(
+            variables=[LinearVariable(name="x", unit="件", domain=domain)],
+            objective=LinearObjective(
+                direction="maximize",
+                terms=[LinearTerm(variable="x", coefficient=1)],
+            ),
+            constraints=[
+                LinearConstraint(
+                    name="capacity",
+                    terms=[LinearTerm(variable="x", coefficient=1)],
+                    relation="<=",
+                    rhs=5,
+                )
+            ],
+        )
+
+    raw_request = {
+        "base_problem": make_problem("continuous").model_dump(mode="json"),
+        "scenarios": [
+            {
+                "scenario_id": "integer_domain",
+                "description": "将x改为整数",
+                "problem": make_problem("integer").model_dump(mode="json"),
+            }
+        ],
+    }
+    scenario_path = tmp_path / "incompatible-scenarios.json"
+    scenario_path.write_text(json.dumps(raw_request, ensure_ascii=False), encoding="utf-8")
+
+    exit_code = cli.main(["--scenario-file", str(scenario_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert "变量签名" in captured.err
+    assert captured.out == ""
+
+
 def test_cli_solve_confirmed_draft_rejects_malformed_json(capsys, tmp_path) -> None:
     from math_modeling_agent.cli import main
 
