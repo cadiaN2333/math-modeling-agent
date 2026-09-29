@@ -147,7 +147,7 @@ class NetworkFlowFormulationIR(BaseModel):
     cost_unit: str
 
 
-class EvidenceReference(BaseModel):
+class EvidenceIR(BaseModel):
     source_id: str
     locator: str
     title: str
@@ -173,7 +173,7 @@ class OptimizationIR(BaseModel):
         LinearFormulationIR | NetworkFlowFormulationIR,
         Field(discriminator="kind"),
     ]
-    evidence: list[EvidenceReference] = Field(default_factory=list)
+    evidence: list[EvidenceIR] = Field(default_factory=list)
     assumptions: list[ModelAssumption] = Field(default_factory=list)
 ```
 
@@ -192,7 +192,7 @@ def compile_linear_problem(
     problem: LinearProgramProblem,
     *,
     problem_id: str,
-    evidence: list[EvidenceReference] | None = None,
+    evidence: list[EvidenceIR] | None = None,
 ) -> OptimizationIR: ...
 
 
@@ -200,7 +200,7 @@ def compile_scheduling_problem(
     problem: SchedulingProblem,
     *,
     problem_id: str,
-    evidence: list[EvidenceReference] | None = None,
+    evidence: list[EvidenceIR] | None = None,
 ) -> OptimizationIR: ...
 
 
@@ -208,12 +208,14 @@ def compile_min_cost_flow_problem(
     problem: MinCostFlowProblem,
     *,
     problem_id: str,
-    evidence: list[EvidenceReference] | None = None,
+    evidence: list[EvidenceIR] | None = None,
 ) -> OptimizationIR: ...
 ```
 
-- [ ] **步骤 1：为 LP/MILP 编译写失败测试。** 对同一 `LinearProgramProblem`，验证变量域、单位、目标方向/系数、约束关系/右端值完全映射，并保留变量和约束来源编号。
-- [ ] **步骤 2：运行 LP/MILP 红灯。**
+当前 `LinearProgramProblem` 尚无变量上下界、表达式单位或来源事实编号字段，因此编译器将这些未知信息保留为空，不推断或伪造来源；调用方显式提供的 `EvidenceIR` 会作为 IR 的证据集合保留。后续若领域输入开始携带逐项来源编号，再扩展逐变量/逐约束的来源映射。
+
+- [x] **步骤 1：为 LP/MILP 编译写失败测试。** 对同一 `LinearProgramProblem`，验证变量域、单位、目标方向/系数、约束关系/右端值完全映射；源模型未提供的上下界、表达式单位和来源事实编号不得臆造。
+- [x] **步骤 2：运行 LP/MILP 红灯。** 编译器实现前，新增的 12 项编译器测试因模块不存在而失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_compilers.py -k linear -q
@@ -221,10 +223,10 @@ def compile_min_cost_flow_problem(
 
 预期：`compile_linear_problem` 尚不存在。
 
-- [ ] **步骤 3：实现并验证线性模型编译。** `compile_linear_problem()` 不修改原输入对象；转换变量域、上下界、单位、目标和约束，缺失的来源信息保持显式为空。
-- [ ] **步骤 4：运行 LP/MILP 绿灯。** 同一测试命令通过。
-- [ ] **步骤 5：为排班编译写失败测试。** 每个员工—班次对生成二进制变量；人数、技能人数、员工工时和最小总排班分钟数目标与现有 `solve_schedule()` 一致。
-- [ ] **步骤 6：运行排班红灯。**
+- [x] **步骤 3：实现并验证线性模型编译。** `compile_linear_problem()` 不修改原输入对象；转换变量域、单位、目标和约束，缺失的来源信息保持显式为空。
+- [x] **步骤 4：运行 LP/MILP 绿灯。** 编译器定向测试通过。
+- [x] **步骤 5：为排班编译写失败测试。** 每个员工—班次对生成二进制变量；人数、技能人数、员工工时和最小总排班分钟数目标与现有 `solve_schedule()` 一致，并覆盖无人具备某个必需技能的约束表达。
+- [x] **步骤 6：运行排班红灯。** 编译器实现前对应测试失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_compilers.py -k scheduling -q
@@ -232,10 +234,10 @@ def compile_min_cost_flow_problem(
 
 预期：`compile_scheduling_problem` 尚不存在。
 
-- [ ] **步骤 7：实现并验证排班编译与解映射。** `decode_schedule_solution()` 只返回取值为 1 的员工—班次指派；小时换算复用 `_hours_to_minutes()`。
-- [ ] **步骤 8：运行排班绿灯。** 同一测试命令通过。
-- [ ] **步骤 9：为网络流编译写失败测试。** IR 保留节点供需、弧容量、单位费用、流量单位和节点/弧编号，并可映射最优弧流。
-- [ ] **步骤 10：运行网络流红灯。**
+- [x] **步骤 7：实现并验证排班编译与解映射。** `decode_schedule_solution()` 只返回取值为 1 的员工—班次指派；小时换算复用 `_hours_to_minutes()`，并拒绝缺失、未知、非有限和非二进制容差外的解值。
+- [x] **步骤 8：运行排班绿灯。** 编译器定向测试通过。
+- [x] **步骤 9：为网络流编译写失败测试。** IR 保留节点供需、弧容量、单位费用、流量单位和节点/弧编号，并可映射整数弧流。
+- [x] **步骤 10：运行网络流红灯。** 编译器实现前对应测试失败。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_compilers.py -k flow -q
@@ -243,12 +245,8 @@ def compile_min_cost_flow_problem(
 
 预期：`compile_min_cost_flow_problem` 尚不存在。
 
-- [ ] **步骤 11：实现网络流编译与解映射。** 网络语义保持结构化，SimpleMinCostFlow 后端不从自然语言或不稳定文本重建图。
-- [ ] **步骤 12：运行全部编译器定向测试。**
-
-```powershell
-& 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_compilers.py -q
-```
+- [x] **步骤 11：实现网络流编译与解映射。** 网络语义保持结构化，SimpleMinCostFlow 后端不从自然语言或不稳定文本重建图；解映射检查弧编号、有限性、非负整数值及容量上限。
+- [x] **步骤 12：运行全部编译器定向测试。** 最终结果为 `12 passed`；全库回归 `205 passed`。
 
 ```powershell
 & 'D:\Agent\.venv\Scripts\python.exe' -m pytest -p no:cacheprovider tests\test_optimization_compilers.py -q
@@ -342,7 +340,7 @@ class ModelingReport(BaseModel):
     solver_status: str
     result: dict[str, object]
     validation_errors: list[str]
-    evidence: list[EvidenceReference]
+    evidence: list[EvidenceIR]
 
 
 class ModelingService(Protocol):
