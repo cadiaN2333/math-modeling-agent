@@ -54,10 +54,10 @@ class LinearVariableIR(_IRModel):
         ):
             raise ValueError("变量上下界不能反转")
         if self.domain == "binary":
-            if self.lower_bound is not None and self.lower_bound < 0:
-                raise ValueError("二进制变量下界不能小于 0")
-            if self.upper_bound is not None and self.upper_bound > 1:
-                raise ValueError("二进制变量上界不能大于 1")
+            if self.lower_bound is not None and not 0 <= self.lower_bound <= 1:
+                raise ValueError("二进制变量下界必须在 [0, 1] 范围内")
+            if self.upper_bound is not None and not 0 <= self.upper_bound <= 1:
+                raise ValueError("二进制变量上界必须在 [0, 1] 范围内")
         return self
 
 

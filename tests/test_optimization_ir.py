@@ -160,6 +160,26 @@ def test_network_flow_ir_round_trips_without_losing_network_structure() -> None:
     assert restored.formulation.cost_unit == "元/箱"
 
 
+def test_binary_lower_bound_above_one_is_rejected_without_upper_bound() -> None:
+    payload = _linear_payload()
+    payload["formulation"]["variables"][2].update(
+        lower_bound=2, upper_bound=None
+    )
+
+    with pytest.raises(ValidationError, match="二进制变量下界"):
+        OptimizationIR.model_validate(payload)
+
+
+def test_binary_upper_bound_below_zero_is_rejected_without_lower_bound() -> None:
+    payload = _linear_payload()
+    payload["formulation"]["variables"][2].update(
+        lower_bound=None, upper_bound=-1
+    )
+
+    with pytest.raises(ValidationError, match="二进制变量上界"):
+        OptimizationIR.model_validate(payload)
+
+
 @pytest.mark.parametrize(
     ("mutate", "message"),
     [
